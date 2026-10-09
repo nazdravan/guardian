@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme.dart';
+
 /// The room dropdown shared by the screens whose content is room-scoped.
 class RoomSelector extends StatelessWidget {
   const RoomSelector({
@@ -19,9 +21,10 @@ class RoomSelector extends StatelessWidget {
     return DropdownButtonHideUnderline(
       child: DropdownButton<String>(
         value: selected?['id'] as String?,
-        dropdownColor: const Color(0xFF2D3748),
-        iconEnabledColor: Colors.white,
-        style: const TextStyle(color: Colors.white, fontSize: 18),
+        dropdownColor: GuardianColors.raised,
+        borderRadius: BorderRadius.circular(8),
+        iconEnabledColor: GuardianColors.muted,
+        style: Theme.of(context).appBarTheme.titleTextStyle,
         items: [
           for (final room in rooms)
             DropdownMenuItem(

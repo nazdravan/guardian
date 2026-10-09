@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../services/settings_service.dart';
+import '../theme.dart';
 import '../utils/snackbar_helper.dart';
+import '../widgets/ui.dart';
 
 /// Where the server is, who is signed in, and which account is being acted in.
 /// The token field that used to live here is gone: the app holds a session it
@@ -70,7 +72,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       showSnackBarMessage(
         context,
         message: 'The address must start with http:// or https://',
-        backgroundColor: Colors.orange,
+        kind: MessageKind.warning,
       );
       return;
     }
@@ -84,8 +86,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       message: reachable
           ? 'Saved — the server answered'
           : 'Saved, but the server did not answer',
-      backgroundColor: reachable ? Colors.green : Colors.orange,
-      duration: const Duration(seconds: 2),
+      kind: reachable ? MessageKind.ok : MessageKind.warning,
     );
   }
 
@@ -117,31 +118,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Settings'),
-        actions: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Settings')),
       body: ListView(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.only(top: 6, bottom: 24),
         children: [
+          const SectionLabel('Server'),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Server',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 12),
                   TextField(
                     controller: _serverController,
+                    style: monoStyle(size: 14),
                     decoration: const InputDecoration(
                       labelText: 'Server address',
-                      border: OutlineInputBorder(),
                     ),
                     keyboardType: TextInputType.url,
                     autocorrect: false,
@@ -158,17 +150,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ),
+          const SectionLabel('Account'),
           Card(
             child: Column(
               children: [
                 ListTile(
-                  leading: const Icon(Icons.person),
+                  leading: const Icon(Icons.person_outline),
                   title: Text(_email ?? 'Signed in'),
                   subtitle: _error == null
                       ? null
                       : Text(
                           _error!,
-                          style: const TextStyle(color: Colors.red),
+                          style: const TextStyle(color: GuardianColors.danger),
                         ),
                 ),
                 if (_loading) const LinearProgressIndicator(),
@@ -203,18 +196,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         messenger.showSnackBar(
                           const SnackBar(
                             content: Text('Switched account'),
-                            backgroundColor: Colors.green,
                             duration: Duration(seconds: 1),
                           ),
                         );
                       },
                     ),
                   ),
+                const Divider(indent: 16, endIndent: 16),
                 ListTile(
-                  leading: const Icon(Icons.logout, color: Colors.red),
+                  leading: const Icon(
+                    Icons.logout,
+                    color: GuardianColors.danger,
+                  ),
                   title: const Text(
                     'Sign out',
-                    style: TextStyle(color: Colors.red),
+                    style: TextStyle(color: GuardianColors.danger),
                   ),
                   onTap: _signOut,
                 ),
@@ -226,7 +222,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Text(
               _version.isEmpty ? '' : 'Guardian $_version',
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall,
+              style: monoStyle(size: 12, color: GuardianColors.dim),
             ),
           ),
         ],

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/settings_service.dart';
+import '../theme.dart';
 import '../utils/snackbar_helper.dart';
 
 /// Sign in, or create an account. The app used to be gated by a shared admin
@@ -47,7 +48,7 @@ class _LoginScreenState extends State<LoginScreen> {
       showSnackBarMessage(
         context,
         message: 'The server address must start with http:// or https://',
-        backgroundColor: Colors.orange,
+        kind: MessageKind.warning,
       );
       return;
     }
@@ -55,7 +56,7 @@ class _LoginScreenState extends State<LoginScreen> {
       showSnackBarMessage(
         context,
         message: 'Email and password are required',
-        backgroundColor: Colors.orange,
+        kind: MessageKind.warning,
       );
       return;
     }
@@ -74,8 +75,7 @@ class _LoginScreenState extends State<LoginScreen> {
         showSnackBarMessage(
           context,
           message: e.message,
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 3),
+          kind: MessageKind.error,
         );
       }
     } finally {
@@ -96,20 +96,32 @@ class _LoginScreenState extends State<LoginScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Icon(Icons.shield, size: 64, color: Color(0xFF2D3748)),
-                  const SizedBox(height: 12),
+                  const Icon(
+                    Icons.shield,
+                    size: 56,
+                    color: GuardianColors.guardian,
+                  ),
+                  const SizedBox(height: 14),
                   Text(
                     'Guardian',
                     textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.headlineSmall,
+                    style: Theme.of(context).textTheme.headlineMedium,
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 6),
+                  Text(
+                    _registering
+                        ? 'Create the account your computers will join.'
+                        : 'Sign in to manage your rooms and computers.',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: GuardianColors.muted),
+                  ),
+                  const SizedBox(height: 28),
                   TextField(
                     controller: _serverController,
+                    style: monoStyle(size: 14),
                     decoration: const InputDecoration(
                       labelText: 'Server address',
                       hintText: 'https://guardian.example.com',
-                      border: OutlineInputBorder(),
                     ),
                     keyboardType: TextInputType.url,
                     autocorrect: false,
@@ -117,20 +129,14 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: 12),
                   TextField(
                     controller: _emailController,
-                    decoration: const InputDecoration(
-                      labelText: 'Email',
-                      border: OutlineInputBorder(),
-                    ),
+                    decoration: const InputDecoration(labelText: 'Email'),
                     keyboardType: TextInputType.emailAddress,
                     autocorrect: false,
                   ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _passwordController,
-                    decoration: const InputDecoration(
-                      labelText: 'Password',
-                      border: OutlineInputBorder(),
-                    ),
+                    decoration: const InputDecoration(labelText: 'Password'),
                     obscureText: true,
                   ),
                   if (_registering) ...[
@@ -139,18 +145,23 @@ class _LoginScreenState extends State<LoginScreen> {
                       controller: _nameController,
                       decoration: const InputDecoration(
                         labelText: 'Your name (optional)',
-                        border: OutlineInputBorder(),
                       ),
                     ),
                   ],
                   const SizedBox(height: 20),
                   FilledButton(
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(48),
+                    ),
                     onPressed: _busy ? null : _submit,
                     child: _busy
                         ? const SizedBox(
                             height: 20,
                             width: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: GuardianColors.void_,
+                            ),
                           )
                         : Text(_registering ? 'Create account' : 'Sign in'),
                   ),

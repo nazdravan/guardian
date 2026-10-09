@@ -4,7 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../services/settings_service.dart';
+import '../theme.dart';
+import '../utils/format.dart';
 import '../utils/snackbar_helper.dart';
+import '../widgets/ui.dart';
+import 'log_screen.dart';
 
 /// The account's computers. A machine belongs to the account, not to a room —
 /// moving it between rooms reinstalls nothing, it just receives a different
@@ -68,20 +72,11 @@ class _ComputersScreenState extends State<ComputersScreen> {
     try {
       await action();
       if (!mounted) return;
-      showSnackBarMessage(
-        context,
-        message: success,
-        backgroundColor: Colors.green,
-      );
+      showSnackBarMessage(context, message: success);
       await _load();
     } on ApiException catch (e) {
       if (!mounted) return;
-      showSnackBarMessage(
-        context,
-        message: e.message,
-        backgroundColor: Colors.red,
-        duration: const Duration(seconds: 3),
-      );
+      showSnackBarMessage(context, message: e.message, kind: MessageKind.error);
     }
   }
 
@@ -95,13 +90,6 @@ class _ComputersScreenState extends State<ComputersScreen> {
     if (seen == null) return false;
     return DateTime.now().toUtc().difference(seen.toUtc()) <
         const Duration(seconds: 90);
-  }
-
-  String _nameOf(Map<String, dynamic> computer) {
-    final display = (computer['display_name'] as String?) ?? '';
-    if (display.isNotEmpty) return display;
-    final hostname = (computer['hostname'] as String?) ?? '';
-    return hostname.isNotEmpty ? hostname : 'Unnamed computer';
   }
 
   Future<void> _addComputer() async {
@@ -128,14 +116,17 @@ class _ComputersScreenState extends State<ComputersScreen> {
                     'Install the Guardian agent on the machine and put this token in its '
                     'agent.env as BINDING_TOKEN. The agent trades it for its own credential '
                     'on first run and then deletes it from the file.',
+                    style: TextStyle(color: GuardianColors.muted, height: 1.45),
                   ),
-                  const SizedBox(height: 12),
-                  SelectableText(
-                    token!,
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 12,
+                  const SizedBox(height: 14),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: GuardianColors.sunken,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: GuardianColors.line),
                     ),
+                    child: SelectableText(token!, style: monoStyle(size: 12)),
                   ),
                 ],
               ),
@@ -153,6 +144,17 @@ class _ComputersScreenState extends State<ComputersScreen> {
             child: const Text('Close'),
           ),
         ],
+      ),
+    );
+  }
+
+  void _openLog(Map<String, dynamic> computer) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ComputerLogScreen(
+          computerId: computer['id'] as String,
+          name: computerName(computer),
+        ),
       ),
     );
   }
@@ -200,7 +202,7 @@ class _ComputersScreenState extends State<ComputersScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Remove ${_nameOf(computer)}?'),
+        title: Text('Remove ${computerName(computer)}?'),
         content: const Text(
           'This revokes that machine\'s credential, so its agent stops syncing. It keeps '
           'enforcing the last policy it received until somebody reinstalls it, and it frees '
@@ -212,7 +214,9 @@ class _ComputersScreenState extends State<ComputersScreen> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: FilledButton.styleFrom(
+              backgroundColor: GuardianColors.danger,
+            ),
             onPressed: () => Navigator.pop(context, true),
             child: const Text('Remove'),
           ),
@@ -226,18 +230,61 @@ class _ComputersScreenState extends State<ComputersScreen> {
     );
   }
 
+  Future<void> _pickRoom(Map<String, dynamic> computer) async {
+    final current = computer['room_id'] as String?;
+    final picked = await showModalBottomSheet<(String?,)>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const SectionLabel('Move to room'),
+            for (final (String? id, String name) in [
+              (null, 'No room — enforces nothing'),
+              for (final r in _rooms) (r['id'] as String, r['name'] as String),
+            ])
+              ListTile(
+                title: Text(name),
+                trailing: id == current
+                    ? const Icon(Icons.check, color: GuardianColors.guardian)
+                    : null,
+                onTap: () => Navigator.pop(context, (id,)),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked == null || picked.$1 == current) return;
+    await _run(
+      () => _service.updateComputer(computer['id'] as String, {
+        'room_id': picked.$1,
+      }),
+      picked.$1 == null ? 'Taken out of every room' : 'Moved',
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final online = _computers.where(_isOnline).length;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Computers'),
         actions: [
+          if (_computers.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: Center(
+                child: Text(
+                  '$online/${_computers.length} online',
+                  style: monoStyle(size: 12, color: GuardianColors.muted),
+                ),
+              ),
+            ),
           IconButton(
             icon: const Icon(Icons.add),
             tooltip: 'Add a computer',
             onPressed: _addComputer,
           ),
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
         ],
       ),
       body: RefreshIndicator(onRefresh: _load, child: _buildBody()),
@@ -247,140 +294,229 @@ class _ComputersScreenState extends State<ComputersScreen> {
   Widget _buildBody() {
     if (_loading) return const Center(child: CircularProgressIndicator());
     if (_error != null) {
-      return ListView(
-        children: [
-          const SizedBox(height: 120),
-          Icon(Icons.cloud_off, size: 56, color: Colors.grey.shade400),
-          const SizedBox(height: 12),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 32),
-            child: Text(_error!, textAlign: TextAlign.center),
-          ),
-        ],
+      return EmptyState(
+        icon: Icons.cloud_off,
+        title: 'Could not load the computers',
+        detail: _error,
       );
     }
     if (_computers.isEmpty) {
-      return ListView(
-        children: const [
-          SizedBox(height: 120),
-          Icon(Icons.computer, size: 56, color: Colors.grey),
-          SizedBox(height: 12),
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: 32),
-            child: Text(
-              'No computers yet. Use + to get an installer token.',
-              textAlign: TextAlign.center,
-            ),
-          ),
-        ],
+      return EmptyState(
+        icon: Icons.computer_outlined,
+        title: 'No computers yet',
+        detail: 'Get an installer token and put it on the machine.',
+        action: FilledButton.icon(
+          onPressed: _addComputer,
+          icon: const Icon(Icons.add),
+          label: const Text('Add a computer'),
+        ),
       );
     }
 
     return ListView.builder(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       itemCount: _computers.length,
       itemBuilder: (context, index) {
         final computer = _computers[index];
-        final online = _isOnline(computer);
-        final blocked = computer['blocked'] as bool? ?? false;
         final roomId = computer['room_id'] as String?;
+        final room = _rooms.firstWhere(
+          (r) => r['id'] == roomId,
+          orElse: () => const {},
+        );
+        return _ComputerCard(
+          computer: computer,
+          online: _isOnline(computer),
+          roomName: room['name'] as String?,
+          onOpenLog: () => _openLog(computer),
+          onPickRoom: () => _pickRoom(computer),
+          onLock: (v) => _run(
+            () => _service.updateComputer(computer['id'] as String, {
+              'blocked': v,
+            }),
+            v ? 'Computer locked' : 'Computer unlocked',
+          ),
+          onMenu: (choice) {
+            if (choice == 'log') _openLog(computer);
+            if (choice == 'rename') _rename(computer);
+            if (choice == 'remove') _unenroll(computer);
+          },
+        );
+      },
+    );
+  }
+}
 
-        return Card(
-          child: Column(
-            children: [
-              ListTile(
-                leading: Icon(
-                  Icons.circle,
-                  size: 14,
-                  color: online ? Colors.green : Colors.grey,
-                ),
-                title: Text(_nameOf(computer)),
-                subtitle: Text(
-                  [
-                        computer['hostname'],
-                        computer['os_name'],
-                        if ((computer['agent_version'] as String?)
-                                ?.isNotEmpty ??
-                            false)
-                          'agent ${computer['agent_version']}',
-                      ]
-                      .where((e) => e != null && (e as String).isNotEmpty)
-                      .join(' · '),
-                ),
-                trailing: PopupMenuButton<String>(
-                  onSelected: (choice) {
-                    if (choice == 'rename') _rename(computer);
-                    if (choice == 'remove') _unenroll(computer);
-                  },
-                  itemBuilder: (context) => const [
-                    PopupMenuItem(value: 'rename', child: Text('Rename')),
-                    PopupMenuItem(
-                      value: 'remove',
-                      child: Text('Remove from account'),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.meeting_room,
-                      size: 18,
-                      color: Colors.grey,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: DropdownButton<String?>(
-                        isExpanded: true,
-                        value: _rooms.any((r) => r['id'] == roomId)
-                            ? roomId
-                            : null,
-                        hint: const Text('No room — enforces nothing'),
-                        items: [
-                          const DropdownMenuItem<String?>(
-                            value: null,
-                            child: Text('No room — enforces nothing'),
-                          ),
-                          for (final room in _rooms)
-                            DropdownMenuItem<String?>(
-                              value: room['id'] as String,
-                              child: Text(room['name'] as String),
+class _ComputerCard extends StatelessWidget {
+  const _ComputerCard({
+    required this.computer,
+    required this.online,
+    required this.roomName,
+    required this.onOpenLog,
+    required this.onPickRoom,
+    required this.onLock,
+    required this.onMenu,
+  });
+
+  final Map<String, dynamic> computer;
+  final bool online;
+  final String? roomName;
+  final VoidCallback onOpenLog;
+  final VoidCallback onPickRoom;
+  final ValueChanged<bool> onLock;
+  final ValueChanged<String> onMenu;
+
+  @override
+  Widget build(BuildContext context) {
+    final blocked = computer['blocked'] as bool? ?? false;
+    final hostname = (computer['hostname'] as String?) ?? '';
+    final facts = [
+      if (hostname.isNotEmpty && hostname != computerName(computer)) hostname,
+      (computer['os_name'] as String?) ?? '',
+      if ((computer['agent_version'] as String?)?.isNotEmpty ?? false)
+        'agent ${computer['agent_version']}',
+    ].where((e) => e.isNotEmpty).join(' · ');
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          InkWell(
+            onTap: onOpenLog,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 4, 8),
+              child: Row(
+                children: [
+                  StatusDot(on: online),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                computerName(computer),
+                                style: Theme.of(context).textTheme.titleMedium,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
-                        ],
-                        onChanged: (value) => _run(
-                          () => _service.updateComputer(
-                            computer['id'] as String,
-                            {'room_id': value},
+                            if (blocked) ...[
+                              const SizedBox(width: 8),
+                              const StateBadge(
+                                'Locked',
+                                color: GuardianColors.amber,
+                              ),
+                            ],
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          online
+                              ? 'online'
+                              : 'seen ${relativeTime(computer['last_seen_at'] as String?)}',
+                          style: monoStyle(
+                            size: 12,
+                            color: online
+                                ? GuardianColors.guardian
+                                : GuardianColors.muted,
                           ),
-                          value == null ? 'Taken out of every room' : 'Moved',
+                        ),
+                        if (facts.isNotEmpty)
+                          Text(
+                            facts,
+                            style: monoStyle(
+                              size: 11,
+                              color: GuardianColors.dim,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                      ],
+                    ),
+                  ),
+                  PopupMenuButton<String>(
+                    icon: const Icon(
+                      Icons.more_vert,
+                      color: GuardianColors.muted,
+                    ),
+                    onSelected: onMenu,
+                    itemBuilder: (context) => const [
+                      PopupMenuItem(value: 'log', child: Text('Blocking log')),
+                      PopupMenuItem(value: 'rename', child: Text('Rename')),
+                      PopupMenuItem(
+                        value: 'remove',
+                        child: Text(
+                          'Remove from account',
+                          style: TextStyle(color: GuardianColors.danger),
                         ),
                       ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const Divider(),
+          Row(
+            children: [
+              Expanded(
+                child: InkWell(
+                  onTap: onPickRoom,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.meeting_room_outlined,
+                          size: 18,
+                          color: GuardianColors.muted,
+                        ),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            roomName ?? 'No room',
+                            style: TextStyle(
+                              color: roomName == null
+                                  ? GuardianColors.amber
+                                  : GuardianColors.ink,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const Icon(
+                          Icons.expand_more,
+                          size: 18,
+                          color: GuardianColors.muted,
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
-              SwitchListTile(
-                dense: true,
-                title: const Text('Locked'),
-                subtitle: Text(
-                  blocked
-                      ? 'Allows nothing but the system processes the agent protects'
-                      : 'Follows its room\'s policy',
-                ),
-                value: blocked,
-                onChanged: (v) => _run(
-                  () => _service.updateComputer(computer['id'] as String, {
-                    'blocked': v,
-                  }),
-                  v ? 'Computer locked' : 'Computer unlocked',
+              const Text(
+                'Lock',
+                style: TextStyle(color: GuardianColors.muted, fontSize: 13),
+              ),
+              const SizedBox(width: 4),
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Switch(
+                  value: blocked,
+                  // Locked is a state that needs attention, not "enforcing".
+                  activeTrackColor: GuardianColors.amber,
+                  trackOutlineColor: WidgetStateProperty.resolveWith(
+                    (s) => s.contains(WidgetState.selected)
+                        ? GuardianColors.amber
+                        : GuardianColors.line,
+                  ),
+                  onChanged: onLock,
                 ),
               ),
             ],
           ),
-        );
-      },
+        ],
+      ),
     );
   }
 }

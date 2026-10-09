@@ -22,6 +22,47 @@ class ApiException implements Exception {
   String toString() => message;
 }
 
+/// What the blocking log is narrowed to. Every field is optional; an empty
+/// filter is the whole log the server keeps (30 days).
+class ProcessEventFilter {
+  const ProcessEventFilter({
+    this.process,
+    this.reason,
+    this.computerId,
+    this.since,
+  });
+
+  /// Exact process name, as the agent reported it (`steam.exe`).
+  final String? process;
+
+  /// `blacklist`, `whitelist`, `locked` or `overflow`.
+  final String? reason;
+
+  /// Room log only: one machine in that room.
+  final String? computerId;
+
+  final DateTime? since;
+
+  Map<String, String> toQuery({required bool includeComputer}) {
+    final process = this.process?.trim();
+    return {
+      if (process != null && process.isNotEmpty) 'process': process,
+      'reason': ?reason,
+      if (includeComputer && computerId != null) 'computer_id': computerId!,
+      if (since != null) 'since': since!.toUtc().toIso8601String(),
+    };
+  }
+}
+
+/// One page of the blocking log. [nextCursor] is null on the last page: the
+/// server sends one only when the page was full.
+class ProcessEventPage {
+  const ProcessEventPage({required this.events, this.nextCursor});
+
+  final List<Map<String, dynamic>> events;
+  final String? nextCursor;
+}
+
 /// The Guardian API client and the little state that goes with it: where the
 /// server is, the session token, which account is being acted in, and which
 /// room is on screen.
@@ -383,6 +424,50 @@ class SettingsService extends ChangeNotifier {
   Future<List<Map<String, dynamic>>> events({int limit = 50}) async => _asMaps(
     (await _send('GET', '/api/v1/events?limit=$limit') as Map)['events'],
   );
+
+  // ------------------------------------------------------------ blocking log
+
+  /// One page of what a room's policy actually closed, newest first. Filters
+  /// left null are not sent; the server ignores a malformed one rather than
+  /// failing, so only the cursor can make this a 400.
+  Future<ProcessEventPage> roomProcessEvents(
+    String roomId, {
+    ProcessEventFilter filter = const ProcessEventFilter(),
+    String? cursor,
+  }) => _processEvents(
+    '/api/v1/rooms/$roomId/process-events',
+    filter.toQuery(includeComputer: true),
+    cursor,
+  );
+
+  /// The same log for one machine. Separate from the room's because a machine
+  /// in no room has no room_id on its rows, so the room query never finds it.
+  Future<ProcessEventPage> computerProcessEvents(
+    String computerId, {
+    ProcessEventFilter filter = const ProcessEventFilter(),
+    String? cursor,
+  }) => _processEvents(
+    '/api/v1/computers/$computerId/process-events',
+    filter.toQuery(includeComputer: false),
+    cursor,
+  );
+
+  Future<ProcessEventPage> _processEvents(
+    String path,
+    Map<String, String> query,
+    String? cursor,
+  ) async {
+    final params = {...query, 'cursor': ?cursor};
+    final target = params.isEmpty
+        ? path
+        : Uri(path: path, queryParameters: params).toString();
+    final body = await _send('GET', target) as Map;
+    final next = body['next_cursor'] as String?;
+    return ProcessEventPage(
+      events: _asMaps(body['process_events']),
+      nextCursor: (next == null || next.isEmpty) ? null : next,
+    );
+  }
 
   // --------------------------------------------------------- binding tokens
 

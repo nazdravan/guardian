@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../services/settings_service.dart';
+import '../theme.dart';
 import '../utils/snackbar_helper.dart';
 import '../widgets/room_selector.dart';
+import '../widgets/ui.dart';
 
 /// The rules of one room. Policy is per-room now, not one global list, so this
 /// screen is always about the room named in the app bar.
@@ -72,20 +74,11 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       await action();
       if (!mounted) return;
-      showSnackBarMessage(
-        context,
-        message: success,
-        backgroundColor: Colors.green,
-      );
+      showSnackBarMessage(context, message: success);
       await _load();
     } on ApiException catch (e) {
       if (!mounted) return;
-      showSnackBarMessage(
-        context,
-        message: e.message,
-        backgroundColor: Colors.red,
-        duration: const Duration(seconds: 3),
-      );
+      showSnackBarMessage(context, message: e.message, kind: MessageKind.error);
     }
   }
 
@@ -102,10 +95,12 @@ class _HomeScreenState extends State<HomeScreen> {
           title: const Text('Add a rule'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               TextField(
                 controller: controller,
                 autofocus: true,
+                style: monoStyle(size: 15),
                 decoration: const InputDecoration(
                   labelText: 'Process name',
                   hintText: 'steam.exe',
@@ -159,66 +154,71 @@ class _HomeScreenState extends State<HomeScreen> {
             await _service.setRoomId(r?['id'] as String?);
           },
         ),
-        actions: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
-        ],
       ),
       floatingActionButton: room == null
           ? null
-          : FloatingActionButton(
+          : FloatingActionButton.extended(
               onPressed: _addApplication,
-              child: const Icon(Icons.add),
+              icon: const Icon(Icons.add),
+              label: const Text('Rule'),
             ),
       body: RefreshIndicator(onRefresh: _load, child: _buildBody(room, mode)),
     );
   }
 
   Widget _buildBody(Map<String, dynamic>? room, String mode) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_error != null) return _message(Icons.cloud_off, _error!);
+    if (_loading && room == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_error != null) {
+      return EmptyState(
+        icon: Icons.cloud_off,
+        title: 'Could not load the rules',
+        detail: _error,
+      );
+    }
     if (room == null) {
-      return _message(
-        Icons.meeting_room_outlined,
-        'No rooms yet. Create one on the Room tab, then put a computer in it.',
+      return const EmptyState(
+        icon: Icons.meeting_room_outlined,
+        title: 'No rooms yet',
+        detail: 'Create one on the Room tab, then put a computer in it.',
       );
     }
 
+    final protection = (room['protection_enabled'] as bool?) == true;
     final active = _apps.where((a) => a['list'] == mode).toList();
     final other = _apps.where((a) => a['list'] != mode).toList();
-    if (_apps.isEmpty) {
-      return _message(Icons.rule, 'No rules in ${room['name']} yet.');
-    }
 
     return ListView(
+      padding: const EdgeInsets.only(bottom: 96),
       children: [
-        if ((room['protection_enabled'] as bool?) != true)
-          Card(
-            margin: const EdgeInsets.all(12),
-            color: Colors.orange.shade50,
-            child: const ListTile(
-              leading: Icon(Icons.shield_outlined, color: Colors.orange),
-              title: Text('Protection is off for this room'),
-              subtitle: Text('These rules are stored but nothing is enforced.'),
+        _PolicySummary(mode: mode, protection: protection),
+        if (_apps.isEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(32, 48, 32, 0),
+            child: Text(
+              mode == 'whitelist'
+                  ? 'No allowed programs yet. In allowlist mode that closes '
+                        'everything but the system — add the programs this room '
+                        'may run.'
+                  : 'No blocked programs yet. Add one with the Rule button.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: GuardianColors.muted, height: 1.45),
             ),
           ),
-        ..._section(
-          context,
-          mode == 'whitelist' ? 'Allowed' : 'Blocked',
-          active,
-          room,
-        ),
+        ..._section(mode == 'whitelist' ? 'Allowed' : 'Blocked', active, room),
         if (other.isNotEmpty)
-          ..._section(context, 'Inactive in this mode', other, room),
+          ..._section('Inactive in this mode', other, room, inMode: false),
       ],
     );
   }
 
   List<Widget> _section(
-    BuildContext context,
     String title,
     List<Map<String, dynamic>> apps,
-    Map<String, dynamic> room,
-  ) {
+    Map<String, dynamic> room, {
+    bool inMode = true,
+  }) {
     if (apps.isEmpty) return const [];
     apps.sort((a, b) {
       final ae = a['enabled'] as bool? ?? true;
@@ -227,50 +227,168 @@ class _HomeScreenState extends State<HomeScreen> {
       return (a['name'] as String).compareTo(b['name'] as String);
     });
     return [
-      Padding(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-        child: Text(title, style: Theme.of(context).textTheme.labelLarge),
-      ),
-      for (final app in apps)
-        ListTile(
-          title: Text(app['name'] as String),
-          subtitle: Text(
-            (app['enabled'] as bool? ?? true) ? 'Enforced' : 'Switched off',
-          ),
-          leading: Switch(
-            value: app['enabled'] as bool? ?? true,
-            onChanged: (v) => _run(
-              () => _service.setApplicationEnabled(
-                room['id'] as String,
-                app['id'] as String,
-                v,
-              ),
-              v ? 'Rule switched on' : 'Rule switched off',
-            ),
-          ),
-          trailing: IconButton(
-            icon: const Icon(Icons.delete_outline),
-            onPressed: () => _run(
-              () => _service.deleteApplication(
-                room['id'] as String,
-                app['id'] as String,
-              ),
-              'Rule removed',
-            ),
-          ),
+      SectionLabel(
+        title,
+        trailing: Text(
+          '${apps.length}',
+          style: monoStyle(size: 12, color: GuardianColors.dim),
         ),
+      ),
+      Card(
+        child: Column(
+          children: [
+            for (var i = 0; i < apps.length; i++) ...[
+              if (i > 0) const Divider(indent: 16, endIndent: 16),
+              _RuleRow(
+                app: apps[i],
+                inMode: inMode,
+                onToggle: (v) => _run(
+                  () => _service.setApplicationEnabled(
+                    room['id'] as String,
+                    apps[i]['id'] as String,
+                    v,
+                  ),
+                  v ? 'Rule switched on' : 'Rule switched off',
+                ),
+                onDelete: () => _run(
+                  () => _service.deleteApplication(
+                    room['id'] as String,
+                    apps[i]['id'] as String,
+                  ),
+                  'Rule removed',
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     ];
   }
+}
 
-  Widget _message(IconData icon, String text) => ListView(
-    children: [
-      const SizedBox(height: 120),
-      Icon(icon, size: 56, color: Colors.grey),
-      const SizedBox(height: 12),
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32),
-        child: Text(text, textAlign: TextAlign.center),
+/// What the room does right now, in one line: which way round the list works
+/// and whether anything is enforced.
+class _PolicySummary extends StatelessWidget {
+  const _PolicySummary({required this.mode, required this.protection});
+
+  final String mode;
+  final bool protection;
+
+  @override
+  Widget build(BuildContext context) {
+    final whitelist = mode == 'whitelist';
+    return Card(
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Icon(
+              protection ? Icons.shield : Icons.shield_outlined,
+              color: protection
+                  ? GuardianColors.guardian
+                  : GuardianColors.amber,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    protection
+                        ? (whitelist ? 'Allowlist' : 'Blocklist')
+                        : 'Protection is off',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    protection
+                        ? (whitelist
+                              ? 'Only the allowed programs may run.'
+                              : 'The blocked programs are closed.')
+                        : 'These rules are stored but nothing is enforced.',
+                    style: const TextStyle(
+                      color: GuardianColors.muted,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            StateBadge(
+              protection ? 'Enforcing' : 'Off',
+              color: protection
+                  ? GuardianColors.guardian
+                  : GuardianColors.amber,
+            ),
+          ],
+        ),
       ),
-    ],
-  );
+    );
+  }
+}
+
+class _RuleRow extends StatelessWidget {
+  const _RuleRow({
+    required this.app,
+    required this.inMode,
+    required this.onToggle,
+    required this.onDelete,
+  });
+
+  final Map<String, dynamic> app;
+
+  /// False for a rule on the other list: it is kept, but the room's current
+  /// mode does not consult it, so it is not enforced whatever its switch says.
+  final bool inMode;
+  final ValueChanged<bool> onToggle;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = app['enabled'] as bool? ?? true;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 4, 4, 4),
+      child: Row(
+        children: [
+          Switch(value: enabled, onChanged: onToggle),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  app['name'] as String,
+                  style: monoStyle(
+                    size: 14,
+                    color: enabled ? GuardianColors.ink : GuardianColors.dim,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  !enabled
+                      ? 'Switched off'
+                      : inMode
+                      ? 'Enforced'
+                      : app['list'] == 'whitelist'
+                      ? 'Applies in allowlist mode'
+                      : 'Applies in blocklist mode',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: GuardianColors.muted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_outline, size: 20),
+            color: GuardianColors.muted,
+            tooltip: 'Remove rule',
+            onPressed: onDelete,
+          ),
+        ],
+      ),
+    );
+  }
 }

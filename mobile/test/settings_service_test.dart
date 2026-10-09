@@ -146,6 +146,133 @@ void main() {
       expect(service.roomId, isNull);
     },
   );
+
+  group('blocking log', () {
+    final page = {
+      'process_events': [
+        {
+          'id': 'e1',
+          'computer_id': 'c1',
+          'computer_name': 'LAB-A-01',
+          'room_id': 'room-1',
+          'process': 'steam.exe',
+          'reason': 'whitelist',
+          'count': 47,
+          'first_at': '2026-10-09T14:00:00Z',
+          'last_at': '2026-10-09T14:00:46Z',
+          'created_at': '2026-10-09T14:01:03Z',
+        },
+      ],
+      'next_cursor': 'cur-2',
+    };
+
+    test('the room log sends only the filters that are set', () async {
+      final recorder = _Recorder(
+        (_) => {
+          'GET /api/v1/rooms/room-1/process-events': http.Response(
+            json.encode(page),
+            200,
+          ),
+        },
+      );
+      final service = _serviceWith(recorder);
+      await service.load();
+      await service.signInForTest('session-abc', 'acc-7');
+
+      final result = await service.roomProcessEvents(
+        'room-1',
+        filter: ProcessEventFilter(
+          process: '  steam.exe ',
+          reason: 'whitelist',
+          computerId: 'c1',
+          since: DateTime.utc(2026, 10, 8, 12),
+        ),
+      );
+
+      final q = recorder.last.url.queryParameters;
+      expect(q['process'], 'steam.exe');
+      expect(q['reason'], 'whitelist');
+      expect(q['computer_id'], 'c1');
+      // The server parses RFC3339; a local time without an offset would be
+      // silently ignored as a malformed filter.
+      expect(DateTime.parse(q['since']!), DateTime.utc(2026, 10, 8, 12));
+      expect(q.containsKey('cursor'), isFalse);
+      expect(recorder.last.headers['X-Guardian-Account'], 'acc-7');
+
+      expect(result.events.single['process'], 'steam.exe');
+      expect(result.nextCursor, 'cur-2');
+    });
+
+    test('an empty filter is a bare request', () async {
+      final recorder = _Recorder(
+        (_) => {
+          'GET /api/v1/rooms/room-1/process-events': http.Response(
+            json.encode({'process_events': []}),
+            200,
+          ),
+        },
+      );
+      final service = _serviceWith(recorder);
+      await service.load();
+      await service.signInForTest('session-abc', 'acc-7');
+
+      final result = await service.roomProcessEvents('room-1');
+
+      expect(recorder.last.url.query, isEmpty);
+      expect(result.events, isEmpty);
+      // No next_cursor is how the API says "that was the last page".
+      expect(result.nextCursor, isNull);
+    });
+
+    test('a computer log pages by cursor and has no computer filter', () async {
+      final recorder = _Recorder(
+        (_) => {
+          'GET /api/v1/computers/c1/process-events': http.Response(
+            json.encode(page),
+            200,
+          ),
+        },
+      );
+      final service = _serviceWith(recorder);
+      await service.load();
+      await service.signInForTest('session-abc', 'acc-7');
+
+      await service.computerProcessEvents(
+        'c1',
+        filter: const ProcessEventFilter(computerId: 'c9'),
+        cursor: 'cur-2',
+      );
+
+      final q = recorder.last.url.queryParameters;
+      expect(q['cursor'], 'cur-2');
+      expect(q.containsKey('computer_id'), isFalse);
+    });
+
+    test('a broken cursor surfaces as the server\'s error', () async {
+      final recorder = _Recorder(
+        (_) => {
+          'GET /api/v1/rooms/room-1/process-events': http.Response(
+            json.encode({'error': 'Invalid cursor'}),
+            400,
+          ),
+        },
+      );
+      final service = _serviceWith(recorder);
+      await service.load();
+      await service.signInForTest('session-abc', 'acc-7');
+
+      await expectLater(
+        service.roomProcessEvents('room-1', cursor: 'garbage'),
+        throwsA(
+          isA<ApiException>().having(
+            (e) => e.message,
+            'message',
+            'Invalid cursor',
+          ),
+        ),
+      );
+    });
+  });
 }
 
 /// A stand-in for a transport failure; MockClient has no built-in way to throw

@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 
 import 'screens/computers_screen.dart';
 import 'screens/home_screen.dart';
+import 'screens/log_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/system_screen.dart';
 import 'services/settings_service.dart';
+import 'theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -20,18 +22,8 @@ class ProcSentinelApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Guardian',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF2D3748),
-          brightness: Brightness.light,
-        ),
-        useMaterial3: true,
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFF2D3748),
-          foregroundColor: Colors.white,
-          elevation: 2,
-        ),
-      ),
+      theme: buildGuardianTheme(),
+      themeMode: ThemeMode.dark,
       home: const _Root(),
       debugShowCheckedModeBanner: false,
     );
@@ -85,6 +77,7 @@ class _MainNavigationState extends State<MainNavigation> {
 
   final List<Widget> _screens = const [
     HomeScreen(),
+    LogScreen(),
     SystemScreen(),
     ComputersScreen(),
     SettingsScreen(),
@@ -94,27 +87,36 @@ class _MainNavigationState extends State<MainNavigation> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: IndexedStack(index: _currentIndex, children: _screens),
-      bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed,
-        currentIndex: _currentIndex,
-        onTap: (index) => setState(() => _currentIndex = index),
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.rule), label: 'Rules'),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.meeting_room),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _currentIndex,
+        onDestinationSelected: (index) => setState(() => _currentIndex = index),
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.rule_outlined),
+            selectedIcon: Icon(Icons.rule),
+            label: 'Rules',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.receipt_long_outlined),
+            selectedIcon: Icon(Icons.receipt_long),
+            label: 'Log',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.meeting_room_outlined),
+            selectedIcon: Icon(Icons.meeting_room),
             label: 'Room',
           ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.computer),
+          NavigationDestination(
+            icon: Icon(Icons.computer_outlined),
+            selectedIcon: Icon(Icons.computer),
             label: 'Computers',
           ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.settings),
+          NavigationDestination(
+            icon: Icon(Icons.settings_outlined),
+            selectedIcon: Icon(Icons.settings),
             label: 'Settings',
           ),
         ],
-        selectedItemColor: const Color(0xFF2D3748),
-        unselectedItemColor: Colors.grey,
       ),
     );
   }

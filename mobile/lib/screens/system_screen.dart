@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../services/settings_service.dart';
+import '../theme.dart';
 import '../utils/snackbar_helper.dart';
 import '../widgets/room_selector.dart';
+import '../widgets/ui.dart';
 
 /// The room itself: whether it enforces anything, which way round its list
 /// works, and whether the machines in it may be powered off. These were three
@@ -66,20 +68,11 @@ class _SystemScreenState extends State<SystemScreen> {
     try {
       await action();
       if (!mounted) return;
-      showSnackBarMessage(
-        context,
-        message: success,
-        backgroundColor: Colors.green,
-      );
+      showSnackBarMessage(context, message: success);
       await _load();
     } on ApiException catch (e) {
       if (!mounted) return;
-      showSnackBarMessage(
-        context,
-        message: e.message,
-        backgroundColor: Colors.red,
-        duration: const Duration(seconds: 3),
-      );
+      showSnackBarMessage(context, message: e.message, kind: MessageKind.error);
     }
   }
 
@@ -138,7 +131,9 @@ class _SystemScreenState extends State<SystemScreen> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: FilledButton.styleFrom(
+              backgroundColor: GuardianColors.danger,
+            ),
             onPressed: () => Navigator.pop(context, true),
             child: const Text('Delete'),
           ),
@@ -167,7 +162,6 @@ class _SystemScreenState extends State<SystemScreen> {
             tooltip: 'New room',
             onPressed: _createRoom,
           ),
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
         ],
       ),
       body: RefreshIndicator(onRefresh: _load, child: _buildBody()),
@@ -175,25 +169,28 @@ class _SystemScreenState extends State<SystemScreen> {
   }
 
   Widget _buildBody() {
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading && _room == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
     if (_error != null) {
-      return ListView(
-        children: [
-          const SizedBox(height: 120),
-          _centered(Icons.cloud_off, _error!),
-        ],
+      return EmptyState(
+        icon: Icons.cloud_off,
+        title: 'Could not load the room',
+        detail: _error,
       );
     }
     final room = _room;
     if (room == null) {
-      return ListView(
-        children: [
-          const SizedBox(height: 120),
-          _centered(
-            Icons.meeting_room_outlined,
-            'No rooms yet. Create one with + above, then put a computer in it.',
-          ),
-        ],
+      return EmptyState(
+        icon: Icons.meeting_room_outlined,
+        title: 'No rooms yet',
+        detail:
+            'A room holds one set of rules. Create one, then put computers in it.',
+        action: FilledButton.icon(
+          onPressed: _createRoom,
+          icon: const Icon(Icons.add),
+          label: const Text('New room'),
+        ),
       );
     }
 
@@ -203,19 +200,22 @@ class _SystemScreenState extends State<SystemScreen> {
     final power = room['power_allowed'] as bool? ?? true;
 
     return ListView(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.only(top: 6, bottom: 24),
       children: [
+        const SectionLabel('Enforcement'),
         Card(
           child: SwitchListTile(
             title: const Text('Protection'),
             subtitle: Text(
               protection
-                  ? 'The rules below are being enforced'
+                  ? 'The rules are being enforced'
                   : 'Nothing is enforced in this room',
             ),
             secondary: Icon(
               protection ? Icons.shield : Icons.shield_outlined,
-              color: protection ? Colors.green : Colors.grey,
+              color: protection
+                  ? GuardianColors.guardian
+                  : GuardianColors.amber,
             ),
             value: protection,
             onChanged: (v) => _run(
@@ -230,7 +230,7 @@ class _SystemScreenState extends State<SystemScreen> {
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text('Mode', style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 4),
@@ -238,9 +238,12 @@ class _SystemScreenState extends State<SystemScreen> {
                   mode == 'whitelist'
                       ? 'Only the listed programs may run. Everything else is closed.'
                       : 'The listed programs are closed. Everything else may run.',
-                  style: Theme.of(context).textTheme.bodySmall,
+                  style: const TextStyle(
+                    color: GuardianColors.muted,
+                    fontSize: 13,
+                  ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 14),
                 SegmentedButton<String>(
                   segments: const [
                     ButtonSegment(value: 'blacklist', label: Text('Blocklist')),
@@ -267,7 +270,7 @@ class _SystemScreenState extends State<SystemScreen> {
             ),
             secondary: Icon(
               Icons.power_settings_new,
-              color: power ? Colors.green : Colors.red,
+              color: power ? GuardianColors.muted : GuardianColors.danger,
             ),
             value: power,
             onChanged: (v) => _run(
@@ -276,11 +279,12 @@ class _SystemScreenState extends State<SystemScreen> {
             ),
           ),
         ),
+        const SectionLabel('Room'),
         Card(
           child: Column(
             children: [
               ListTile(
-                leading: const Icon(Icons.edit),
+                leading: const Icon(Icons.edit_outlined),
                 title: const Text('Rename room'),
                 onTap: () async {
                   final name = await _askForName(
@@ -294,11 +298,15 @@ class _SystemScreenState extends State<SystemScreen> {
                   );
                 },
               ),
+              const Divider(indent: 16, endIndent: 16),
               ListTile(
-                leading: const Icon(Icons.delete_outline, color: Colors.red),
+                leading: const Icon(
+                  Icons.delete_outline,
+                  color: GuardianColors.danger,
+                ),
                 title: const Text(
                   'Delete room',
-                  style: TextStyle(color: Colors.red),
+                  style: TextStyle(color: GuardianColors.danger),
                 ),
                 onTap: () => _deleteRoom(room),
               ),
@@ -308,15 +316,4 @@ class _SystemScreenState extends State<SystemScreen> {
       ],
     );
   }
-
-  Widget _centered(IconData icon, String text) => Column(
-    children: [
-      Icon(icon, size: 56, color: Colors.grey),
-      const SizedBox(height: 12),
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32),
-        child: Text(text, textAlign: TextAlign.center),
-      ),
-    ],
-  );
 }

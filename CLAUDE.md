@@ -88,7 +88,8 @@ cd mobile && flutter pub run flutter_launcher_icons
 ### Mobile (`mobile/`)
 - Signs in as a person (`POST /api/v1/auth/login` with `"client": "mobile"`, which is what returns the token in the body) and sends `Authorization: Bearer <session token>` plus `X-Guardian-Account`. The shared `ADMIN_TOKEN` field is gone
 - `LoginScreen` (sign in / register) gates the app; `_Root` in `main.dart` listens to `SettingsService` so signing in or out swaps the screen
-- 4 tabs: `HomeScreen` (**Rules** — one room's applications), `SystemScreen` (**Room** — protection, mode, power, rename/delete/create), `ComputersScreen` (pool, room assignment, lock, unenrol, mint an installer token), `SettingsScreen` (server address, account switcher, sign out)
+- 5 tabs: `HomeScreen` (**Rules** — one room's applications), `LogScreen` (**Log** — the room's blocking log; `ComputerLogScreen` is one machine's, opened from its card), `SystemScreen` (**Room** — protection, mode, power, rename/delete/create), `ComputersScreen` (pool, room assignment, lock, unenrol, mint an installer token), `SettingsScreen` (server address, account switcher, sign out)
+- Uses the cabinet's design system (`lib/theme.dart`): dark only, Space Grotesk / Inter / JetBrains Mono bundled as TTF in `assets/fonts/`, colour only for state
 - `SettingsService` is the whole API client plus `shared_preferences` state (server address, session token, selected account and room). Failures raise `ApiException` carrying the server's message — the old client returned `false`/`[]`, so an outage looked like an empty account
 - `flutter test` needs no Android SDK and no server: API contract tests drive the service against `MockClient`, plus a login-screen widget test. See `specs/mobile.md`
 
