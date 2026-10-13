@@ -4,9 +4,11 @@
 pub mod agent;
 
 pub mod diagnose;
+pub mod enforce;
 pub mod parse;
 pub mod paths;
 pub mod read;
+pub mod report;
 pub mod snapshot;
 #[cfg(any(test, feature = "testkit"))]
 pub mod testkit;
