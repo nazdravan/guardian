@@ -1,0 +1,24 @@
+[package]
+name = "guardian-winhost"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+guardian-core = { workspace = true }
+chrono = { workspace = true }
+ureq = { workspace = true }
+rustls-native-certs = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-service = { workspace = true }
+winreg = { workspace = true }
+is_elevated = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+guardian-core = { workspace = true, features = ["testkit"] }
