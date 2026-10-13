@@ -4,6 +4,7 @@
 pub mod agent;
 
 pub mod diagnose;
+pub mod edit;
 pub mod enforce;
 pub mod parse;
 pub mod paths;
