@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 pub const TABS: [&str; 4] = ["diagnostics", "configuration", "processes", "log"];
-pub const USAGE: &str = "Usage:\n  Guardian.exe [--tab diagnostics|configuration|processes|log] [--dir <agent folder>]\n  Guardian.exe report [--json] [--dir <agent folder>] [--offline]\n\nExit codes of report: 0 protection works, 10 warnings, 11 errors, 2 usage error.";
+pub const USAGE: &str = "Usage:\n  Guardian.exe [--tab diagnostics|configuration|processes|log] [--dir <agent folder>]\n  Guardian.exe report [--json] [--dir <agent folder>] [--offline]\n\nExit codes of report: 0 protection works, 10 warnings, 11 errors, 2 usage error.\nFrom cmd, read the exit code with `start /wait Guardian.exe report > report.txt`; without a redirect the report is saved next to Guardian.exe.";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {

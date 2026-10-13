@@ -35,8 +35,7 @@ fn run_report(json: bool, dir: Option<std::path::PathBuf>, offline: bool) -> i32
     // A GUI-subsystem exe has no console of its own: output reaches a redirect or pipe
     // (`Guardian.exe report > report.txt`), but not a bare console. If stdout is
     // unusable, save the report next to the exe instead and say where (spec R25).
-    let mut out = std::io::stdout();
-    if out.write_all(body.as_bytes()).and_then(|_| out.flush()).is_err() {
+    if !print_report(&body) {
         let msg = match save_report_next_to_exe(&s.machine.hostname, &r) {
             Ok(p) => format!("Saved the report to {}", p.display()),
             Err(e) => format!("Could not print or save the report: {e}"),
@@ -44,6 +43,28 @@ fn run_report(json: bool, dir: Option<std::path::PathBuf>, offline: bool) -> i32
         rfd::MessageDialog::new().set_title("Guardian report").set_description(msg).show();
     }
     exit_code(&d)
+}
+
+/// Whether the process has a stdout at all. Rust's std swallows ERROR_INVALID_HANDLE, so a
+/// GUI-subsystem exe started from a bare console would "write" successfully into nothing.
+#[cfg(windows)]
+fn has_stdout() -> bool {
+    use std::os::windows::io::AsRawHandle;
+    !std::io::stdout().as_raw_handle().is_null()
+}
+
+#[cfg(not(windows))]
+fn has_stdout() -> bool {
+    true
+}
+
+/// True when the report was written to stdout; false means use the fallback.
+fn print_report(body: &str) -> bool {
+    if !has_stdout() {
+        return false;
+    }
+    let mut out = std::io::stdout();
+    out.write_all(body.as_bytes()).and_then(|_| out.flush()).is_ok()
 }
 
 fn save_report_next_to_exe(host: &str, r: &guardian_core::report::Report) -> Result<std::path::PathBuf, String> {
