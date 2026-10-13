@@ -1,0 +1,3 @@
+# local
+notepad.exe
+Calc.exe
