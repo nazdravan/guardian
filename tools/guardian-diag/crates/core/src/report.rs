@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 
-use crate::diagnose::{Diagnosis, Status};
+use crate::diagnose::{Diagnosis, Status, VerdictKind};
 use crate::enforce::verdict_for;
 use crate::parse::{AgentEvent, EventKind, KillReason};
 use crate::snapshot::Snapshot;
@@ -41,12 +41,19 @@ pub fn kill_summary(events: &[AgentEvent]) -> Vec<KillSummary> {
     v
 }
 
+/// 0 = protection works, 10 = degraded, 11 = broken. The worse of the checks and the verdict.
 pub fn exit_code(d: &Diagnosis) -> i32 {
-    match d.worst() {
+    let checks = match d.worst() {
         Status::Error => 11,
         Status::Warn => 10,
         _ => 0,
-    }
+    };
+    let verdict = match d.verdict.kind {
+        VerdictKind::On => 0,
+        VerdictKind::Stale | VerdictKind::Free | VerdictKind::Unknown => 10,
+        VerdictKind::NotInstalled | VerdictKind::Stopped | VerdictKind::NotEnrolled | VerdictKind::NeverSynced => 11,
+    };
+    checks.max(verdict)
 }
 
 pub fn report(s: &Snapshot, d: &Diagnosis) -> Report {
@@ -159,6 +166,33 @@ mod tests {
         let s = snapshot_from_dir(&fixtures_dir().join("healthy"), "2026-10-10T11:15:00Z".parse().unwrap());
         let d = diagnose(&s);
         assert_eq!(exit_code(&d), 11); // fixture log has an error
+    }
+
+    fn clean() -> crate::snapshot::Snapshot {
+        let mut s = snapshot_from_dir(&fixtures_dir().join("healthy"), "2026-10-10T11:15:00Z".parse().unwrap());
+        if let Read::Ok(ev) = &mut s.events {
+            ev.retain(|e| e.level != crate::parse::Level::Error);
+        }
+        s
+    }
+
+    #[test]
+    fn exit_code_follows_checks_and_verdict() {
+        let s = clean();
+        assert_eq!(exit_code(&diagnose(&s)), 0);
+
+        let mut free = clean();
+        if let Read::Ok(f) = &mut free.sync {
+            f.parsed.mode = crate::parse::Mode::Free;
+        }
+        let d = diagnose(&free);
+        assert_eq!(d.verdict.kind, VerdictKind::Free);
+        assert_eq!(exit_code(&d), 10);
+
+        let mut broken = clean();
+        broken.sync = Read::Missing;
+        let d = diagnose(&broken);
+        assert_eq!(exit_code(&d), 11, "{:?}", d.verdict.kind);
     }
 
     #[test]

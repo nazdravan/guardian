@@ -19,6 +19,8 @@ pub enum ProcessVerdict {
     /// `taskkill /IM <rule>` every second, which does not touch this process.
     NotAffected {
         substring_rule: Option<String>,
+        /// A `*` rule that would glob-match this name; the agent never acts on wildcard rules.
+        wildcard_rule: Option<String>,
     },
     Unknown(String),
 }
@@ -31,10 +33,13 @@ impl ProcessVerdict {
             ProcessVerdict::AllowedPolicy => "Allowed (policy)".into(),
             ProcessVerdict::WillClose { rule: Some(r) } => format!("Will be closed: blacklist rule `{r}`"),
             ProcessVerdict::WillClose { rule: None } => "Will be closed: whitelist mode, not in the room policy or whitelist.txt".into(),
-            ProcessVerdict::NotAffected { substring_rule: Some(r) } => {
+            ProcessVerdict::NotAffected { wildcard_rule: Some(r), .. } => {
+                format!("Not affected (rule `{r}` has a wildcard; the agent only acts on exact names, so it never closes anything)")
+            }
+            ProcessVerdict::NotAffected { substring_rule: Some(r), .. } => {
                 format!("Not affected (substring match: rule `{r}` makes the agent try to close `{r}`, not this process)")
             }
-            ProcessVerdict::NotAffected { substring_rule: None } => "Not affected".into(),
+            ProcessVerdict::NotAffected { .. } => "Not affected".into(),
             ProcessVerdict::Unknown(why) => format!("Unknown: {why}"),
         }
     }
@@ -43,7 +48,8 @@ impl ProcessVerdict {
     }
 }
 
-/// taskkill /IM semantics: case-insensitive, `*` matches any run of characters.
+/// taskkill /IM glob semantics: case-insensitive, `*` matches any run of characters.
+/// Used only to explain a wildcard rule: the agent never reaches taskkill with one.
 pub fn image_matches(rule: &str, name: &str) -> bool {
     let (rule, name) = (rule.to_lowercase(), name.to_lowercase());
     let parts: Vec<&str> = rule.split('*').collect();
@@ -90,17 +96,22 @@ pub fn verdict_for(s: &Snapshot, process: &str) -> ProcessVerdict {
         Mode::Blacklist => {
             let rules = policy.applications.iter().map(|a| a.name.as_str()).filter(|n| !n.is_empty());
             let mut substring = None;
+            let mut wildcard = None;
             for r in rules {
-                if image_matches(r, &lower) {
+                if r.contains('*') {
+                    // Never a literal substring of the tasklist text, so the agent never tries it.
+                    if wildcard.is_none() && image_matches(r, &lower) {
+                        wildcard = Some(r.to_string());
+                    }
+                } else if r.to_lowercase() == lower {
                     return ProcessVerdict::WillClose { rule: Some(r.to_string()) };
-                }
-                if substring.is_none() && lower.contains(&r.to_lowercase()) {
+                } else if substring.is_none() && lower.contains(&r.to_lowercase()) {
                     substring = Some(r.to_string());
                 }
             }
-            ProcessVerdict::NotAffected { substring_rule: substring }
+            ProcessVerdict::NotAffected { substring_rule: substring, wildcard_rule: wildcard }
         }
-        Mode::Free | Mode::Other(_) => ProcessVerdict::NotAffected { substring_rule: None },
+        Mode::Free | Mode::Other(_) => ProcessVerdict::NotAffected { substring_rule: None, wildcard_rule: None },
     }
 }
 
@@ -134,9 +145,10 @@ mod tests {
     fn blacklist_is_exact_image_name_with_substring_note() {
         let s = snap(Mode::Blacklist, &["code.exe", "steam*"]);
         assert_eq!(verdict_for(&s, "Code.exe"), ProcessVerdict::WillClose { rule: Some("code.exe".into()) });
-        assert_eq!(verdict_for(&s, "vscode.exe"), ProcessVerdict::NotAffected { substring_rule: Some("code.exe".into()) });
-        assert_eq!(verdict_for(&s, "steamwebhelper.exe"), ProcessVerdict::WillClose { rule: Some("steam*".into()) });
-        assert_eq!(verdict_for(&s, "notepad.exe"), ProcessVerdict::NotAffected { substring_rule: None });
+        assert_eq!(verdict_for(&s, "vscode.exe"), ProcessVerdict::NotAffected { substring_rule: Some("code.exe".into()), wildcard_rule: None });
+        assert_eq!(verdict_for(&s, "steamwebhelper.exe"), ProcessVerdict::NotAffected { substring_rule: None, wildcard_rule: Some("steam*".into()) });
+        assert!(verdict_for(&s, "steamwebhelper.exe").label().contains("has a wildcard"));
+        assert_eq!(verdict_for(&s, "notepad.exe"), ProcessVerdict::NotAffected { substring_rule: None, wildcard_rule: None });
         // Protected processes are not exempt in blacklist mode: the agent does not check isSystemProcess there.
         let s = snap(Mode::Blacklist, &["explorer.exe"]);
         assert_eq!(verdict_for(&s, "explorer.exe"), ProcessVerdict::WillClose { rule: Some("explorer.exe".into()) });
@@ -144,7 +156,7 @@ mod tests {
 
     #[test]
     fn free_and_unknown() {
-        assert_eq!(verdict_for(&snap(Mode::Free, &[]), "game.exe"), ProcessVerdict::NotAffected { substring_rule: None });
+        assert_eq!(verdict_for(&snap(Mode::Free, &[]), "game.exe"), ProcessVerdict::NotAffected { substring_rule: None, wildcard_rule: None });
         let mut s = snap(Mode::Whitelist, &[]);
         assert!(looks_locked(&s));
         s.sync = Read::Missing;
