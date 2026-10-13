@@ -1,0 +1,23 @@
+[package]
+name = "guardian"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "Guardian"
+path = "src/main.rs"
+
+[dependencies]
+guardian-core = { workspace = true }
+guardian-winhost = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+rfd = { workspace = true }
+
+[build-dependencies]
+winresource = "0.1"
