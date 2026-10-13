@@ -11,7 +11,7 @@ pub fn unquote_image_path(v: &str) -> String {
             None => rest.to_string(),
         };
     }
-    match v.to_lowercase().find(".exe") {
+    match v.to_ascii_lowercase().find(".exe") {
         Some(i) => v[..i + 4].to_string(),
         None => v.to_string(),
     }
@@ -44,6 +44,12 @@ mod tests {
         );
         assert_eq!(unquote_image_path(r"C:\x\agent.EXE -service"), r"C:\x\agent.EXE");
         assert_eq!(unquote_image_path(r#""C:\x\a.exe"#), r"C:\x\a.exe");
+    }
+
+    #[test]
+    fn unquote_image_path_non_ascii() {
+        assert_eq!(unquote_image_path(r"C:\İnstall\Agent.EXE -service"), r"C:\İnstall\Agent.EXE");
+        assert_eq!(unquote_image_path(r"C:\Программы\agent.exe -service"), r"C:\Программы\agent.exe");
     }
 
     #[test]

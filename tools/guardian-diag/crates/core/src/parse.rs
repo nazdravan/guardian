@@ -291,6 +291,21 @@ mod tests {
     }
 
     #[test]
+    fn env_utf16_and_invalid_do_not_panic() {
+        let mut u16le = vec![0xFF, 0xFE];
+        for c in "SERVER_ADDRESS=https://a\r\n".encode_utf16() {
+            u16le.extend_from_slice(&c.to_le_bytes());
+        }
+        let e = env(&u16le);
+        assert_eq!(e.encoding, Encoding::Utf16);
+        assert_eq!(e.server_address, None); // the Go agent sees NULs in the key too
+
+        let e = env(b"SERVER_ADDRESS=https://a\n\xC3\n");
+        assert_eq!(e.encoding, Encoding::Invalid);
+        assert_eq!(e.server_address.as_deref(), Some("https://a"));
+    }
+
+    #[test]
     fn credentials_drop_the_token() {
         let c = credentials(&fx("healthy/agent_credentials.json")).unwrap();
         assert_eq!(c.server_address, "https://guardian.example.com");
