@@ -11,6 +11,7 @@ pub const KEEP_BACKUPS: usize = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Step {
+    Read,
     Changed,
     Backup,
     Write,
@@ -42,6 +43,7 @@ impl std::fmt::Display for ApplyError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let what = self.kind.file_name();
         match self.step {
+            Step::Read => write!(f, "Could not read {what}: {}", self.message)?,
             Step::Changed => write!(f, "{what} changed on disk since it was loaded")?,
             Step::Backup => write!(f, "Could not back up {what}: {}", self.message)?,
             Step::Write => write!(f, "Could not write {what}: {}", self.message)?,
@@ -61,11 +63,19 @@ impl std::fmt::Display for ApplyError {
 
 impl std::error::Error for ApplyError {}
 
-fn current_hash(io: &Path) -> std::io::Result<Option<String>> {
+fn read_target(io: &Path) -> std::io::Result<Option<Vec<u8>>> {
     match std::fs::read(io) {
-        Ok(b) => Ok(Some(sha256_hex(&b))),
+        Ok(b) => Ok(Some(b)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e),
+    }
+}
+
+fn matches_expected(expected: &Expected, cur: &Option<Vec<u8>>) -> bool {
+    match (expected, cur) {
+        (Expected::Absent, None) => true,
+        (Expected::Hash(h), Some(c)) => *h == sha256_hex(c),
+        _ => false,
     }
 }
 
@@ -77,15 +87,41 @@ fn backup_name(file: &str, now: DateTime<Local>, dir_io: &Path) -> String {
     (1..).map(|i| format!("{base}-{i}")).find(|n| !dir_io.join(n).exists()).unwrap_or(base)
 }
 
-fn rotate(dir_io: &Path, file: &str) {
+/// Sort key of `<file>.bak-YYYYMMDD-HHMMSS[-N]`; `None` for any other name.
+fn backup_key(name: &str, prefix: &str) -> Option<(String, u64)> {
+    let rest = name.strip_prefix(prefix)?;
+    let (ts, n) = match rest.split_once('-').and_then(|(d, t)| t.split_once('-').map(|(t, n)| (format!("{d}-{t}"), Some(n)))) {
+        Some((ts, n)) => (ts, n),
+        None => (rest.to_string(), None),
+    };
+    let (d, t) = ts.split_once('-')?;
+    let digits = |x: &str, len: usize| x.len() == len && x.bytes().all(|c| c.is_ascii_digit());
+    if !digits(d, 8) || !digits(t, 6) {
+        return None;
+    }
+    let n = match n {
+        None => 0,
+        Some(n) if !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit()) => n.parse().ok()?,
+        Some(_) => return None,
+    };
+    Some((ts, n))
+}
+
+/// Keep the newest `KEEP_BACKUPS` backups plus `just_made` (a DST fall-back can make the new
+/// timestamp sort older than existing ones). Files that are not ours by name are never touched.
+fn rotate(dir_io: &Path, file: &str, just_made: Option<&str>) {
     let prefix = format!("{file}.bak-");
     let Ok(rd) = std::fs::read_dir(dir_io) else { return };
-    let mut baks: Vec<String> =
-        rd.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.starts_with(&prefix)).collect();
-    // Names sort chronologically (timestamp, then -N suffix).
-    baks.sort_by(|a, b| b.cmp(a));
-    for old in baks.iter().skip(KEEP_BACKUPS) {
-        let _ = std::fs::remove_file(dir_io.join(old));
+    let mut baks: Vec<((String, u64), String)> = rd
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter_map(|n| backup_key(&n, &prefix).map(|k| (k, n)))
+        .collect();
+    baks.sort_by(|a, b| b.0.cmp(&a.0));
+    for (_, old) in baks.iter().skip(KEEP_BACKUPS) {
+        if Some(old.as_str()) != just_made {
+            let _ = std::fs::remove_file(dir_io.join(old));
+        }
     }
 }
 
@@ -103,6 +139,13 @@ fn rename_with_retry(from: &Path, to: &Path) -> std::io::Result<()> {
     Err(last.unwrap_or_else(|| std::io::Error::other("rename failed")))
 }
 
+fn write_synced(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut f = std::fs::File::create(path)?;
+    f.write_all(bytes)?;
+    f.sync_all()
+}
+
 fn apply_one(fw: &FileWrite, io: &dyn Fn(&Path) -> PathBuf, overwrite: bool, now: DateTime<Local>, done: &[FileKind]) -> Result<Written, ApplyError> {
     let fail = |step, backup: Option<PathBuf>, message: String| ApplyError { kind: fw.kind, step, backup, written_before: done.to_vec(), message };
     let target = io(&fw.path);
@@ -110,34 +153,29 @@ fn apply_one(fw: &FileWrite, io: &dyn Fn(&Path) -> PathBuf, overwrite: bool, now
     let dir_io = target.parent().map(Path::to_path_buf).unwrap_or_default();
     let name = fw.kind.file_name();
 
-    let cur = current_hash(&target).map_err(|e| fail(Step::Changed, None, e.to_string()))?;
-    if !overwrite {
-        let same = match (&fw.expected, &cur) {
-            (Expected::Absent, None) => true,
-            (Expected::Hash(h), Some(c)) => h == c,
-            _ => false,
-        };
-        if !same {
-            return Err(fail(Step::Changed, None, String::new()));
-        }
+    let cur = read_target(&target).map_err(|e| fail(Step::Read, None, e.to_string()))?;
+    if !overwrite && !matches_expected(&fw.expected, &cur) {
+        return Err(fail(Step::Changed, None, String::new()));
     }
 
-    let backup = if cur.is_some() {
+    // The backup is written from the very bytes that were checked, not from a second read.
+    let mut made = None;
+    let backup = if let Some(old) = &cur {
         let bn = backup_name(name, now, &dir_io);
-        std::fs::copy(&target, dir_io.join(&bn)).map_err(|e| fail(Step::Backup, None, e.to_string()))?;
-        Some(dir_canon.join(&bn))
+        let bp = dir_io.join(&bn);
+        if let Err(e) = write_synced(&bp, old) {
+            let _ = std::fs::remove_file(&bp);
+            return Err(fail(Step::Backup, None, e.to_string()));
+        }
+        let canon = dir_canon.join(&bn);
+        made = Some(bn);
+        Some(canon)
     } else {
         None
     };
 
     let tmp = dir_io.join(format!("{name}.guardian-tmp-{}", std::process::id()));
-    let write = || -> std::io::Result<()> {
-        use std::io::Write;
-        let mut f = std::fs::File::create(&tmp)?;
-        f.write_all(&fw.new_bytes)?;
-        f.sync_all()
-    };
-    if let Err(e) = write() {
+    if let Err(e) = write_synced(&tmp, &fw.new_bytes) {
         let _ = std::fs::remove_file(&tmp);
         return Err(fail(Step::Write, backup, e.to_string()));
     }
@@ -150,11 +188,21 @@ fn apply_one(fw: &FileWrite, io: &dyn Fn(&Path) -> PathBuf, overwrite: bool, now
         Ok(_) => return Err(fail(Step::Verify, backup, "content differs".into())),
         Err(e) => return Err(fail(Step::Verify, backup, e.to_string())),
     }
-    rotate(&dir_io, name);
+    rotate(&dir_io, name, made.as_deref());
     Ok(Written { kind: fw.kind, backup })
 }
 
 pub fn apply(plan: &WritePlan, io: &dyn Fn(&Path) -> PathBuf, overwrite: bool, now: DateTime<Local>) -> Result<Applied, ApplyError> {
+    // Check every file before touching any: a stale second file must leave the first alone.
+    if !overwrite {
+        for fw in &plan.files {
+            let fail = |step, message: String| ApplyError { kind: fw.kind, step, backup: None, written_before: Vec::new(), message };
+            let cur = read_target(&io(&fw.path)).map_err(|e| fail(Step::Read, e.to_string()))?;
+            if !matches_expected(&fw.expected, &cur) {
+                return Err(fail(Step::Changed, String::new()));
+            }
+        }
+    }
     let mut written = Vec::new();
     let mut done = Vec::new();
     for fw in &plan.files {
@@ -258,13 +306,74 @@ mod tests {
     }
 
     #[test]
-    fn apply_reports_partial_progress() {
+    fn apply_checks_every_file_before_writing_any() {
         let d = tempfile::tempdir().unwrap();
         std::fs::write(d.path().join(".env"), b"1").unwrap();
         std::fs::write(d.path().join("whitelist.txt"), b"changed").unwrap();
         let plan = WritePlan { files: vec![fw(d.path(), FileKind::Env, Some(b"1"), b"2"), fw(d.path(), FileKind::Whitelist, Some(b"orig"), b"new")] };
         let e = apply(&plan, &id, false, at(8, 0, 0)).unwrap_err();
         assert_eq!(e.kind, FileKind::Whitelist);
+        assert_eq!(e.step, Step::Changed);
+        assert!(e.written_before.is_empty());
+        assert_eq!(std::fs::read(d.path().join(".env")).unwrap(), b"1");
+        assert!(std::fs::read_dir(d.path()).unwrap().all(|e| !e.unwrap().file_name().to_string_lossy().contains(".bak-")));
+    }
+
+    #[test]
+    fn apply_reports_partial_progress() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join(".env"), b"1").unwrap();
+        let plan = WritePlan { files: vec![fw(d.path(), FileKind::Env, Some(b"1"), b"2"), fw(d.path(), FileKind::Whitelist, None, b"new")] };
+        // The whitelist's I/O directory does not exist: it reads as absent (passes the check), then the write fails.
+        let missing = d.path().join("no-such-dir");
+        let map = move |p: &Path| if p.file_name().is_some_and(|n| n == "whitelist.txt") { missing.join("whitelist.txt") } else { p.to_path_buf() };
+        let e = apply(&plan, &map, false, at(8, 0, 0)).unwrap_err();
+        assert_eq!(e.kind, FileKind::Whitelist);
+        assert_eq!(e.step, Step::Write);
         assert_eq!(e.written_before, vec![FileKind::Env]);
+        assert_eq!(std::fs::read(d.path().join(".env")).unwrap(), b"2");
+    }
+
+    #[test]
+    fn apply_read_error_is_not_reported_as_changed() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::create_dir(d.path().join(".env")).unwrap();
+        let plan = WritePlan { files: vec![fw(d.path(), FileKind::Env, Some(b"1"), b"2")] };
+        let e = apply(&plan, &id, false, at(8, 0, 0)).unwrap_err();
+        assert_eq!(e.step, Step::Read);
+        assert!(e.to_string().starts_with("Could not read .env"));
+        let e = apply(&plan, &id, true, at(8, 0, 0)).unwrap_err();
+        assert_eq!(e.step, Step::Read);
+    }
+
+    #[test]
+    fn rotation_ignores_foreign_names_and_orders_numerically() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join(".env"), b"0").unwrap();
+        std::fs::write(d.path().join(".env.bak-before-edit"), b"mine").unwrap();
+        std::fs::write(d.path().join(".env.bak-20261014-080000-2"), b"").unwrap();
+        std::fs::write(d.path().join(".env.bak-20261014-080000-10"), b"").unwrap();
+        for m in 1..=3 {
+            std::fs::write(d.path().join(format!(".env.bak-20261014-09{m:02}00")), b"").unwrap();
+        }
+        let plan = WritePlan { files: vec![fw(d.path(), FileKind::Env, Some(b"0"), b"1")] };
+        apply(&plan, &id, false, at(10, 0, 0)).unwrap();
+        let names: Vec<String> = std::fs::read_dir(d.path()).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        assert!(names.contains(&".env.bak-before-edit".to_string()));
+        // 6 real backups: the oldest is -2 (older than -10 at the same second), and it goes.
+        assert!(!names.contains(&".env.bak-20261014-080000-2".to_string()));
+        assert!(names.contains(&".env.bak-20261014-080000-10".to_string()));
+    }
+
+    #[test]
+    fn rotation_keeps_backup_made_in_this_call_even_if_it_sorts_oldest() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join(".env"), b"0").unwrap();
+        for m in 1..=5 {
+            std::fs::write(d.path().join(format!(".env.bak-20261014-10{m:02}00")), b"").unwrap();
+        }
+        let plan = WritePlan { files: vec![fw(d.path(), FileKind::Env, Some(b"0"), b"1")] };
+        let r = apply(&plan, &id, false, at(9, 0, 0)).unwrap();
+        assert!(r.written[0].backup.clone().unwrap().exists());
     }
 }
