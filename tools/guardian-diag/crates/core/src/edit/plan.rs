@@ -131,7 +131,9 @@ pub fn plan(s: &Snapshot, env: &EnvEdit, wl: &WhitelistEdit) -> Result<WritePlan
         let (bytes, expected) = source(&s.env, Field::ServerAddress).map_err(|e| vec![e])?;
         let new_bytes = render_env(&bytes, &changes)
             .map_err(|e| vec![Issue { severity: Severity::Error, field: Field::ServerAddress, message: e.to_string() }])?;
-        files.push(FileWrite { kind: FileKind::Env, path: s.install.path.join(agent::ENV_FILE), expected, new_bytes, summary });
+        if new_bytes != bytes {
+            files.push(FileWrite { kind: FileKind::Env, path: s.install.path.join(agent::ENV_FILE), expected, new_bytes, summary });
+        }
     }
 
     let current = super::WhitelistEdit::from_snapshot(s).entries;
@@ -141,7 +143,10 @@ pub fn plan(s: &Snapshot, env: &EnvEdit, wl: &WhitelistEdit) -> Result<WritePlan
             .map_err(|e| vec![Issue { severity: Severity::Error, field: Field::Whitelist, message: e.to_string() }])?;
         let mut summary: Vec<String> = wl.entries.iter().filter(|e| !current.contains(e)).map(|e| format!("+ {e}")).collect();
         summary.extend(current.iter().filter(|c| !wl.entries.contains(c)).map(|c| format!("− {c}")));
-        files.push(FileWrite { kind: FileKind::Whitelist, path: s.install.path.join(agent::WHITELIST_FILE), expected, new_bytes, summary });
+        // A reorder or remove+re-add renders the same bytes: nothing to write, no needless .bak.
+        if new_bytes != bytes {
+            files.push(FileWrite { kind: FileKind::Whitelist, path: s.install.path.join(agent::WHITELIST_FILE), expected, new_bytes, summary });
+        }
     }
     Ok(WritePlan { files })
 }
@@ -188,6 +193,18 @@ mod tests {
         assert!(!format!("{:?}", env.summary).contains("bt_new"));
         assert_eq!(p.files[1].summary, vec!["+ winword.exe".to_string(), "− calc.exe".to_string()]);
         assert_eq!(p.files[1].path, fixtures_dir().join("healthy").join("whitelist.txt"));
+    }
+
+    #[test]
+    fn reorder_or_remove_and_readd_writes_nothing() {
+        let s = snap();
+        let mut wl = WhitelistEdit::from_snapshot(&s);
+        wl.entries.reverse();
+        assert!(plan(&s, &EnvEdit::from_snapshot(&s), &wl).unwrap().is_empty());
+        let mut wl = WhitelistEdit::from_snapshot(&s);
+        let first = wl.entries.remove(0);
+        wl.entries.push(first);
+        assert!(plan(&s, &EnvEdit::from_snapshot(&s), &wl).unwrap().is_empty());
     }
 
     #[test]
