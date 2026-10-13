@@ -3,9 +3,10 @@ pub mod diagnostics;
 pub mod log;
 pub mod processes;
 
+use crate::GuardianApp;
 use crate::state::{Tab, edit_lock};
 use crate::theme;
-use crate::{GuardianApp, worker::Worker};
+use crate::worker::{Job, Worker};
 
 pub fn top_bar(app: &mut GuardianApp, ui: &mut egui::Ui) {
     egui::Panel::top("top").show(ui, |ui| {
@@ -37,10 +38,7 @@ pub fn top_bar(app: &mut GuardianApp, ui: &mut egui::Ui) {
                     if let Some(d) = &app.manual_dir {
                         args.extend(["--dir".to_string(), d.display().to_string()]);
                     }
-                    match guardian_winhost::relaunch_elevated(&args) {
-                        Ok(()) => ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close),
-                        Err(e) => app.notice = Some((guardian_core::diagnose::Status::Warn, e)),
-                    }
+                    app.worker = Some(Worker::spawn(Job::Relaunch(args), ui.ctx().clone()));
                 }
                 if let Some(p) = app.worker.as_ref().and_then(Worker::progress) {
                     ui.spinner();

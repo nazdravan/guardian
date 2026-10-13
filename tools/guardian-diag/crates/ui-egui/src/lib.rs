@@ -85,6 +85,9 @@ impl GuardianApp {
     }
 
     pub fn refresh(&mut self, ctx: &egui::Context) {
+        if self.busy() {
+            return;
+        }
         self.worker = Some(Worker::spawn(Job::Collect(CollectOptions { manual_dir: self.manual_dir.clone(), probe_health: true }), ctx.clone()));
     }
 
@@ -100,6 +103,9 @@ impl GuardianApp {
         self.worker = None;
         match done {
             Done::Collected(s) => self.set_snapshot(*s),
+            Done::Relaunched(Ok(())) => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+            Done::Relaunched(Err(e)) => self.notice = Some((guardian_core::diagnose::Status::Warn, e)),
+            Done::Crashed(m) => self.notice = Some((guardian_core::diagnose::Status::Error, m)),
             other => tabs::configuration::on_done(self, other, ctx),
         }
     }

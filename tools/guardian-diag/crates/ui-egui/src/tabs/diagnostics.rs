@@ -38,7 +38,7 @@ pub fn show(app: &mut GuardianApp, ui: &mut egui::Ui) {
     });
     ui.add_space(12.0);
     ui.horizontal(|ui| {
-        if ui.button("Choose agent folder…").clicked()
+        if ui.add_enabled(!app.busy(), egui::Button::new("Choose agent folder…")).clicked()
             && let Some(dir) = rfd::FileDialog::new().pick_folder()
         {
             app.manual_dir = Some(dir);
