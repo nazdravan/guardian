@@ -1,0 +1,22 @@
+[package]
+name = "guardian-ui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+guardian-core = { workspace = true }
+guardian-winhost = { workspace = true }
+egui = { workspace = true }
+eframe = { workspace = true }
+egui_extras = { workspace = true }
+rfd = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+egui_kittest = { workspace = true, features = ["eframe"] }
+guardian-core = { workspace = true, features = ["testkit"] }

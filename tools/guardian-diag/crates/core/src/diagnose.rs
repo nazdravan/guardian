@@ -76,6 +76,15 @@ impl Diagnosis {
             Status::Ok
         }
     }
+
+    /// Colour of the verdict line: green only for On.
+    pub fn worst_for_verdict(&self) -> Status {
+        match self.verdict.kind {
+            VerdictKind::On => Status::Ok,
+            VerdictKind::Stale | VerdictKind::Free | VerdictKind::Unknown => Status::Warn,
+            _ => Status::Error,
+        }
+    }
 }
 
 fn check(id: CheckId, title: &'static str, status: Status, fact: impl Into<String>, todo: impl Into<String>) -> Check {

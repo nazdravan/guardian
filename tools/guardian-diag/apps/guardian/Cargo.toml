@@ -15,6 +15,7 @@ path = "src/main.rs"
 [dependencies]
 guardian-core = { workspace = true }
 guardian-winhost = { workspace = true }
+guardian-ui = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }
 rfd = { workspace = true }

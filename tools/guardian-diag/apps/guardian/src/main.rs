@@ -19,10 +19,16 @@ fn main() {
             2
         }
         Ok(args::Command::Report { json, dir, offline }) => run_report(json, dir, offline),
-        Ok(args::Command::Window { tab: _, dir: _ }) => {
-            let _ = writeln!(std::io::stderr(), "the window is not built yet");
-            2
-        }
+        Ok(args::Command::Window { tab, dir }) => match guardian_ui::run(tab, dir) {
+            Ok(()) => 0,
+            Err(e) => {
+                rfd::MessageDialog::new()
+                    .set_title("Guardian")
+                    .set_description(format!("Guardian could not open its window ({e}). Run: Guardian.exe report > report.txt"))
+                    .show();
+                1
+            }
+        },
     };
     std::process::exit(code);
 }
