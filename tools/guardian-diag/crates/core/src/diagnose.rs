@@ -174,7 +174,8 @@ pub fn diagnose(s: &Snapshot) -> Diagnosis {
     // Enrollment
     let enrolled_here = match (&s.credentials, env.and_then(|e| e.server_address.as_deref())) {
         (Read::Ok(c), Some(addr)) if c.server_address.is_empty() || c.server_address == addr => Some(true),
-        (Read::Ok(_), _) => Some(false),
+        (Read::Ok(_), _) if matches!(s.env, Read::Ok(_) | Read::Missing) => Some(false),
+        (Read::Ok(_), _) => None,
         (Read::Missing, _) => Some(false),
         _ => None,
     };
@@ -201,15 +202,24 @@ pub fn diagnose(s: &Snapshot) -> Diagnosis {
         ),
         (other, _) => check(CheckId::Enrollment, "Enrollment", Status::Unknown, unknown(other), "Run as administrator to read the credentials."),
     });
-    checks.push(match (env.and_then(|e| e.binding_token.clone()), enrolled_here) {
-        (Some(t), Some(true)) => check(
+    checks.push(match (&s.env, env.and_then(|e| e.binding_token.clone()), enrolled_here) {
+        (Read::Ok(_), Some(t), Some(true)) => check(
             CheckId::LeftoverToken,
             "Leftover BINDING_TOKEN",
             Status::Warn,
             format!("present (…{}) although enrolled; the agent ignores it", t.0),
             "Remove it on the Configuration tab.",
         ),
-        _ => check(CheckId::LeftoverToken, "Leftover BINDING_TOKEN", Status::Ok, "none", ""),
+        (Read::Ok(_), Some(t), Some(false)) => {
+            check(CheckId::LeftoverToken, "Leftover BINDING_TOKEN", Status::Ok, format!("present (…{}), waiting for enrollment", t.0), "")
+        }
+        (Read::Ok(_), Some(t), None) => check(CheckId::LeftoverToken, "Leftover BINDING_TOKEN", Status::Unknown, format!("present (…{})", t.0), ""),
+        (Read::Ok(_) | Read::Missing, None, _) | (Read::Missing, _, _) => {
+            check(CheckId::LeftoverToken, "Leftover BINDING_TOKEN", Status::Ok, "none", "")
+        }
+        (other, _, _) => {
+            check(CheckId::LeftoverToken, "Leftover BINDING_TOKEN", Status::Unknown, unknown(other), "Run as administrator to read .env.")
+        }
     });
 
     // Sync
@@ -274,7 +284,10 @@ pub fn diagnose(s: &Snapshot) -> Diagnosis {
         .and_then(|ev| ev.iter().filter(|e| e.time >= day_ago).find_map(|e| REFUSALS.iter().find(|(needle, _)| e.message.contains(needle))));
     checks.push(match refusal {
         Some((needle, todo)) => check(CheckId::ServerRefusal, "Server refusal", Status::Error, format!("the server answered: {needle}"), *todo),
-        None => check(CheckId::ServerRefusal, "Server refusal", if s.events.as_ok().is_some() { Status::Ok } else { Status::Unknown }, "none", ""),
+        None => match &s.events {
+            Read::Ok(_) => check(CheckId::ServerRefusal, "Server refusal", Status::Ok, "none", ""),
+            other => check(CheckId::ServerRefusal, "Server refusal", Status::Unknown, unknown(other), ""),
+        },
     });
 
     // Clock
@@ -296,12 +309,28 @@ pub fn diagnose(s: &Snapshot) -> Diagnosis {
 
 fn verdict(s: &Snapshot, _checks: &[Check], enrolled_here: Option<bool>, last_sync: Option<DateTime<Utc>>, stale: Option<bool>) -> Verdict {
     let v = |kind, text: String, hint: &str| Verdict { kind, text, hint: hint.to_string() };
-    if matches!(s.service, Read::Missing) && !s.install.exists {
-        return v(
-            VerdictKind::NotInstalled,
-            "Not installed".into(),
-            "Service not found, default folder is empty. Choose a folder to inspect a copy.",
-        );
+    if matches!(s.service, Read::Missing) {
+        if !s.install.exists {
+            return v(
+                VerdictKind::NotInstalled,
+                "Not installed".into(),
+                "Service not found, default folder is empty. Choose a folder to inspect a copy.",
+            );
+        }
+        let hint = if s.is_manual_dir() {
+            format!("The files in {} were inspected, but this computer has no ProcSentinelAgent service.", s.install.path.display())
+        } else {
+            format!(
+                "The service ProcSentinelAgent is not registered; the agent's files are still in {}. Reinstall with the installer from the cabinet.",
+                s.install.path.display()
+            )
+        };
+        return v(VerdictKind::NotInstalled, "Not installed".into(), &hint);
+    }
+    if let Read::Ok(svc) = &s.service
+        && !svc.exe_exists
+    {
+        return v(VerdictKind::NotInstalled, "Not installed".into(), "The service points at a missing executable. Reinstall the agent.");
     }
     if let Read::Ok(svc) = &s.service
         && svc.state != ServiceState::Running
@@ -450,5 +479,165 @@ mod tests {
             e.parsed.binding_token = Some(crate::read::SecretTail::of("t"));
         }
         assert_eq!(status(&diagnose(&s), CheckId::LeftoverToken), Status::Warn);
+    }
+
+    fn check_of(d: &Diagnosis, id: CheckId) -> &Check {
+        d.checks.iter().find(|c| c.id == id).unwrap()
+    }
+    fn set_events(s: &mut Snapshot, f: impl Fn(&mut crate::parse::AgentEvent)) {
+        if let Read::Ok(ev) = &mut s.events {
+            ev.iter_mut().for_each(f);
+        }
+    }
+
+    #[test]
+    fn verdict_service_missing_folder_exists() {
+        let mut s = healthy();
+        s.service = Read::Missing;
+        let d = diagnose(&s);
+        assert_eq!(d.verdict.kind, VerdictKind::NotInstalled);
+        assert!(d.verdict.hint.contains("not registered"));
+        assert!(d.verdict.hint.contains("Reinstall"));
+        s.install.source = DirSource::Manual;
+        let d = diagnose(&s);
+        assert_eq!(d.verdict.kind, VerdictKind::NotInstalled);
+        assert!(d.verdict.hint.contains("no ProcSentinelAgent service"));
+        assert_eq!(status(&d, CheckId::Service), Status::Error);
+    }
+
+    #[test]
+    fn verdict_running_with_missing_exe() {
+        let mut s = healthy();
+        if let Read::Ok(svc) = &mut s.service {
+            svc.exe_exists = false;
+        }
+        let d = diagnose(&s);
+        assert_eq!(d.verdict.kind, VerdictKind::NotInstalled);
+        assert!(d.verdict.hint.contains("missing executable"));
+        assert_eq!(status(&d, CheckId::ServiceExe), Status::Error);
+    }
+
+    #[test]
+    fn service_not_auto_is_warn() {
+        let mut s = healthy();
+        if let Read::Ok(svc) = &mut s.service {
+            svc.start_type = StartType::Manual;
+        }
+        assert_eq!(status(&diagnose(&s), CheckId::Service), Status::Warn);
+    }
+
+    #[test]
+    fn token_present_before_enrollment_is_ok() {
+        let mut s = healthy();
+        s.credentials = Read::Missing;
+        if let Read::Ok(e) = &mut s.env {
+            e.parsed.binding_token = Some(crate::read::SecretTail::of("t"));
+        }
+        let c = diagnose(&s);
+        let c = check_of(&c, CheckId::LeftoverToken);
+        assert_eq!(c.status, Status::Ok);
+        assert!(c.fact.contains("waiting for enrollment"));
+    }
+
+    #[test]
+    fn token_with_unknown_enrollment_is_unknown() {
+        let mut s = healthy();
+        s.credentials = Read::Denied;
+        if let Read::Ok(e) = &mut s.env {
+            e.parsed.binding_token = Some(crate::read::SecretTail::of("t"));
+        }
+        let d = diagnose(&s);
+        let c = check_of(&d, CheckId::LeftoverToken);
+        assert_eq!(c.status, Status::Unknown);
+        assert!(c.fact.starts_with("present"));
+    }
+
+    #[test]
+    fn token_with_unreadable_env_and_absent_token() {
+        let mut s = healthy();
+        s.env = Read::Denied;
+        let d = diagnose(&s);
+        let c = check_of(&d, CheckId::LeftoverToken);
+        assert_eq!(c.status, Status::Unknown);
+        assert_eq!(c.fact, "no access");
+        // credentials are readable but .env is not: enrollment is unknown, not "not enrolled"
+        assert_eq!(status(&d, CheckId::Enrollment), Status::Unknown);
+        let d = diagnose(&healthy());
+        let c = check_of(&d, CheckId::LeftoverToken);
+        assert_eq!((c.status, c.fact.as_str()), (Status::Ok, "none"));
+    }
+
+    #[test]
+    fn refusal_with_unreadable_events_is_unknown() {
+        let mut s = healthy();
+        s.events = Read::Denied;
+        let d = diagnose(&s);
+        let c = check_of(&d, CheckId::ServerRefusal);
+        assert_eq!((c.status, c.fact.as_str()), (Status::Unknown, "no access"));
+        assert_eq!(status(&d, CheckId::AgentErrors), Status::Unknown);
+    }
+
+    #[test]
+    fn old_errors_and_refusals_are_ignored() {
+        let mut s = healthy();
+        set_events(&mut s, |e| e.time -= chrono::Duration::hours(30));
+        let d = diagnose(&s);
+        assert_eq!(status(&d, CheckId::AgentErrors), Status::Ok);
+        assert_eq!(status(&d, CheckId::ServerRefusal), Status::Ok);
+    }
+
+    #[test]
+    fn never_synced() {
+        let mut s = healthy();
+        s.sync = Read::Missing;
+        let d = diagnose(&s);
+        assert_eq!(status(&d, CheckId::Sync), Status::Error);
+        assert_eq!(d.verdict.kind, VerdictKind::NeverSynced);
+    }
+
+    #[test]
+    fn verdict_unknown_when_sync_denied() {
+        let mut s = healthy();
+        s.sync = Read::Denied;
+        let d = diagnose(&s);
+        assert_eq!(d.verdict.kind, VerdictKind::Unknown);
+        assert_eq!(status(&d, CheckId::Sync), Status::Unknown);
+    }
+
+    #[test]
+    fn health_failures_and_clock_ok() {
+        let mut s = healthy();
+        s.health = Some(Read::Ok(HealthProbe { status: Some(503), latency_ms: 10, server_date: None, error: None }));
+        assert_eq!(status(&diagnose(&s), CheckId::Health), Status::Error);
+        s.health = Some(Read::Ok(HealthProbe { status: None, latency_ms: 0, server_date: None, error: Some("timeout".into()) }));
+        let d = diagnose(&s);
+        assert_eq!(status(&d, CheckId::Health), Status::Error);
+        assert_eq!(check_of(&d, CheckId::Health).fact, "timeout");
+        s.health =
+            Some(Read::Ok(HealthProbe { status: Some(200), latency_ms: 5, server_date: Some(now() - chrono::Duration::minutes(1)), error: None }));
+        assert_eq!(status(&diagnose(&s), CheckId::Clock), Status::Ok);
+    }
+
+    #[test]
+    fn pending_restart_unknown_without_start_record() {
+        let mut s = healthy();
+        if let Read::Ok(ev) = &mut s.events {
+            ev.retain(|e| e.kind != crate::parse::EventKind::Start);
+        }
+        assert_eq!(status(&diagnose(&s), CheckId::PendingRestart), Status::Unknown);
+    }
+
+    #[test]
+    fn stale_boundary_is_three_intervals() {
+        let interval = healthy().env.as_ok().unwrap().parsed.effective_check_interval() as i64;
+        for (offset, stale) in [(3 * interval, false), (3 * interval + 1, true)] {
+            let mut s = healthy();
+            if let Read::Ok(f) = &mut s.sync {
+                f.mtime = Some(now() - chrono::Duration::seconds(offset));
+            }
+            let d = diagnose(&s);
+            assert_eq!(d.verdict.kind == VerdictKind::Stale, stale, "offset {offset}");
+            assert_eq!(status(&d, CheckId::Sync), if stale { Status::Warn } else { Status::Ok });
+        }
     }
 }
