@@ -13,7 +13,6 @@ guardian-core = { workspace = true }
 guardian-winhost = { workspace = true }
 egui = { workspace = true }
 eframe = { workspace = true }
-egui_extras = { workspace = true }
 rfd = { workspace = true }
 chrono = { workspace = true }
 

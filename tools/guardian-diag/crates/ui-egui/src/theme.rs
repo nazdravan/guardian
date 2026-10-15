@@ -33,7 +33,6 @@ pub fn font_definitions() -> FontDefinitions {
         f.font_data.insert(name.to_owned(), Arc::new(FontData::from_static(bytes)));
     };
     add("Inter", include_bytes!("../../../../../mobile/assets/fonts/Inter-Regular.ttf"));
-    add("Inter-SemiBold", include_bytes!("../../../../../mobile/assets/fonts/Inter-SemiBold.ttf"));
     add("SpaceGrotesk", include_bytes!("../../../../../mobile/assets/fonts/SpaceGrotesk-Medium.ttf"));
     add("JetBrainsMono", include_bytes!("../../../../../mobile/assets/fonts/JetBrainsMono-Regular.ttf"));
     f.families.entry(FontFamily::Proportional).or_default().insert(0, "Inter".to_owned());
