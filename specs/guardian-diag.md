@@ -64,7 +64,7 @@ CI cannot drive the GUI. Record results here or in the PR description.
 | 1 | Non-admin double-click from a USB stick: window opens, verdict shown, Configuration read-only with "Run as administrator to edit"; unreadable fields say "no access". | |
 | 2 | "Restart as administrator" -> UAC -> reopens on the same tab; cancel UAC -> old window stays with "Elevation was cancelled". | |
 | 3 | Admin: add `winword.exe`, Save -> confirm -> `whitelist.txt` updated, `whitelist.txt.bak-*` present, restart dialog -> Restart -> Processes shows `winword.exe` "Allowed (whitelist.txt)"; Event Log shows a new "Server address:" start record. | |
-| 4 | Change `CHECK_INTERVAL` to 15 -> Save -> Restart -> `Synced:` records ~15 s apart. | |
+| 4 | Change `CHECK_INTERVAL` to 15 -> Save -> Restart -> the modification time of `sync.json` in the agent folder advances every ~15 s (refresh Explorer, or Refresh in Guardian and watch "Last sync" stay under 15 s). The agent logs `Synced:` only when the policy changes, so the Event Log is not the measure. | |
 | 5 | Change `SERVER_ADDRESS` to another host -> the drop-out warning appears; Cancel. | |
 | 6 | Open `.env` in Notepad between load and Save, edit, save -> Guardian's Save shows "changed on disk" -> Reload. | |
 | 7 | Agent in whitelist mode: the window survives (protected name `guardian.exe`). | |
