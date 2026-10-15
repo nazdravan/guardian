@@ -80,3 +80,23 @@ fn reorder_only_says_nothing_to_save() {
     assert!(h.state().dialog.is_none());
     assert_eq!(h.state().notice.as_ref().map(|n| n.1.as_str()), Some("Nothing to save."));
 }
+
+#[test]
+fn changed_on_disk_cancel_keeps_the_draft() {
+    let mut h = harness(true);
+    guardian_ui::tabs::configuration::add_entry(h.state_mut(), "winword.exe").unwrap();
+    guardian_ui::tabs::configuration::begin_save(h.state_mut());
+    let plan = match h.state_mut().dialog.take() {
+        Some(Dialog::Confirm { plan, .. }) => plan,
+        _ => panic!("expected the confirm dialog"),
+    };
+    h.state_mut().dialog = Some(Dialog::ChangedOnDisk { plan });
+    h.run_steps(2);
+    h.get_by_label("Reload");
+    h.get_by_label("Overwrite");
+    h.get_by_label("Cancel").click();
+    h.run_steps(2);
+    assert!(h.state().dialog.is_none());
+    assert!(h.state().worker.is_none());
+    assert!(h.state().draft.as_ref().unwrap().whitelist.entries.iter().any(|e| e == "winword.exe"));
+}

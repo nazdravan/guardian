@@ -324,6 +324,10 @@ pub fn dialogs(app: &mut GuardianApp, ctx: &egui::Context) {
                         keep = false;
                         app.worker = Some(Worker::spawn(Job::Apply { plan: plan.clone(), overwrite: true }, ctx.clone()));
                     }
+                    if ui.button("Cancel").clicked() {
+                        // Keeps the draft: nothing is written and nothing is reloaded.
+                        keep = false;
+                    }
                 });
             }
             Dialog::Restart => {
