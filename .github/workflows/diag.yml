@@ -43,6 +43,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: tools/guardian-diag
+      # Windows-only code is never compiled on Linux, so lint it here.
+      - name: clippy (Windows code)
+        run: cargo clippy --workspace --all-targets --target i686-pc-windows-msvc -- -D warnings
       - name: tests (winhost apply on a temp folder, report CLI)
         run: cargo test -p guardian-core -p guardian-winhost -p guardian --target i686-pc-windows-msvc
       - name: release build
@@ -61,9 +64,11 @@ jobs:
           # and yields its exit code.
           $p = Start-Process -FilePath $exe -Wait -PassThru -NoNewWindow `
             -ArgumentList @("report", "--offline", "--dir", (Resolve-Path "crates/core/tests/fixtures/healthy").Path) `
-            -RedirectStandardOutput report.txt
+            -RedirectStandardOutput report.txt -RedirectStandardError report.err
           $code = $p.ExitCode
           Get-Content report.txt
+          if (Test-Path report.err) { Write-Host "stderr:"; Get-Content report.err }
+          # On a runner without the agent the service is missing, so exit code 11 is expected.
           if (@(0,10,11) -notcontains $code) { throw "unexpected exit code $code" }
           if (-not (Select-String -Path report.txt -Pattern "VERDICT:")) { throw "no verdict in the report" }
           if (Select-String -Path report.txt -Pattern "agt_secret_value_123") { throw "secret leaked" }

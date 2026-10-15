@@ -4,14 +4,14 @@ Design and rationale: `specs/2026-10-10-guardian-diag-design.md` (Russian, requi
 
 ## Purpose
 
-`tools/guardian-diag/` is a portable Windows app (Rust + egui, one `Guardian.exe`, no installer, no DLLs, static CRT, `i686-pc-windows-msvc`, runs on 32- and 64-bit Windows 10+). Run from a USB stick on a machine with the ProcSentinel agent, it answers "is protection working, and if not, why?", and lets an administrator edit the agent's `.env` and `whitelist.txt`. It never talks to the server and never kills processes. The manifest is `asInvoker`; without administrator rights everything readable is shown, unreadable fields say "no access", and Configuration is read-only with a "Run as administrator to edit" banner and a "Restart as administrator" button (relaunch via UAC on the same tab, `--tab`).
+`tools/guardian-diag/` is a portable Windows app (Rust + egui, one `Guardian.exe`, no installer, no DLLs, static CRT, `i686-pc-windows-msvc`, runs on 32- and 64-bit Windows 10+). Run from a USB stick on a machine with the ProcSentinel agent, it answers "is protection working, and if not, why?", and lets an administrator edit the agent's `.env` and `whitelist.txt`. It never kills processes and sends the server nothing but an anonymous `/health` probe (skipped with `--offline`). The manifest is `asInvoker`; without administrator rights everything readable is shown, unreadable fields say "no access", and Configuration is read-only with a "Run as administrator to edit" banner and a "Restart as administrator" button (relaunch via UAC on the same tab, `--tab`).
 
 ## Tabs
 
-- **Diagnostics** (first) - one-line verdict (Protection is on / stale policy / Not enrolled / Service stopped / Not installed / Free mode) and a list of checks, each with status, fact and "what to do". "Not installed" is also the verdict for a missing service with the folder still present, and for a running service whose exe is missing. Refresh re-reads everything; there is no auto-refresh.
+- **Diagnostics** (first) - the Save report button lives here (if saving fails, the error dialog offers "Choose folder..."). One-line verdict (Protection is on / stale policy / Not enrolled / Service stopped / Not installed / Free mode) and a list of checks, each with status, fact and "what to do". "Not installed" is also the verdict for a missing service with the folder still present, and for a running service whose exe is missing. Refresh re-reads everything; there is no auto-refresh.
 - **Configuration** - `.env` settings (`SERVER_ADDRESS`, `CHECK_INTERVAL`, `BINDING_TOKEN`) and the local whitelist (Add, Add from running, Remove). Edits are a draft with Save / Revert. Secrets are never shown: only present/absent and the last 4 hex chars of the SHA-256.
 - **Processes** - `tasklist` joined with the saved policy, computed like the agent's `enforce`: Protected by the system / Allowed (whitelist.txt) / Allowed (policy) / Will be closed / Not affected; "Why is ... closed?" box; filters. In `blacklist` mode a process is closed only when a rule equals its name (case-insensitive): the agent runs `taskkill /F /IM <rule>` after `strings.Contains(tasklistText, rule)`. A substring-only match makes the agent retry `<rule>` every second ("Failed to kill process ...") and does not touch the other process; a rule with `*` never fires. These cases appear as notes.
-- **Log** - `ProcSentinelAgent` records from the Application Event Log (`wevtutil qe ... /f:xml`, at most 2000), filters Kills / Errors and warnings / Sync / All, text search, period, and a "Kill summary" mode. Save report is here.
+- **Log** - `ProcSentinelAgent` records from the Application Event Log (`wevtutil qe ... /f:xml`, at most 2000), filters Kills / Errors and warnings / Sync / All, text search, period, and a "Kill summary" mode. 
 
 ## What it writes, and when
 
@@ -53,7 +53,7 @@ CI (`.github/workflows/diag.yml`): `core` job on Linux (fmt, clippy, tests); `wi
 
 ## Two `Guardian.exe`
 
-The installer archive (`server/installer.go`) still ships the Go console (`tools/whitelist-gui`) as `Guardian.exe`: installer and updater. Guardian Diag builds a different program with the same file name (the agent's protected list contains `guardian.exe`, so the window survives whitelist mode). They are separate artifacts; replacing the archive's console is an open decision (design spec, Open questions).
+The installer archive (`server/installer.go`) still ships the Go console (`tools/whitelist-gui`) as `Guardian.exe`: installer and updater. Guardian Diag builds a different program with the same file name (the agent's protected list contains `guardian.exe`, so the window survives whitelist mode). They are separate artifacts; replacing the archive's console is an open decision (closed decision, design spec "Decisions", variant (a), 2026-10-14).
 
 ## Manual verification (Windows 10 x64, and x86 if available)
 
@@ -70,5 +70,5 @@ CI cannot drive the GUI. Record results here or in the PR description.
 | 7 | Agent in whitelist mode: the window survives (protected name `guardian.exe`). | |
 | 8 | 32-bit `Guardian.exe` on 64-bit Windows: paths shown as `System32`, edits land in the real folder (check with 64-bit Explorer). | |
 | 9 | `start /wait Guardian.exe report > r.txt` from cmd: file has the report and `%ERRORLEVEL%` matches the verdict. | |
-| 10 | (a) `crates/core/tests/fixtures/wevtutil.xml` is hand-written: confirm it matches real `wevtutil qe Application "/q:*[System[Provider[@Name='ProcSentinelAgent']]]" /f:xml /rd:true` output, and that event text decodes correctly on a Cyrillic (ru-RU) Windows. | |
-| 11 | (b) `Guardian.exe report` run from a bare cmd without a redirect saves the file to `GuardianReports\` and shows the message box with the path. | |
+| 10 | `crates/core/tests/fixtures/wevtutil.xml` is hand-written: confirm it matches real `wevtutil qe Application "/q:*[System[Provider[@Name='ProcSentinelAgent']]]" /f:xml /rd:true` output, and that event text decodes correctly on a Cyrillic (ru-RU) Windows. | |
+| 11 | `Guardian.exe report` run from a bare cmd without a redirect saves the file to `GuardianReports\` and shows the message box with the path. | |

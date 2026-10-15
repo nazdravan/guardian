@@ -189,4 +189,4 @@ Setting the `power` client entry to `false` via the `/client` endpoint triggers 
 - **Go 1.25+** for server and agent
 - **Flutter 3.x** for the mobile app
 - Agent Windows builds require PowerShell and `CGO_ENABLED=1`
-- **Rust (stable)** for [Guardian Diag](tools/guardian-diag/) — a portable `Guardian.exe` that diagnoses and edits an agent's local config from a USB stick (see `specs/guardian-diag.md`)
+- **Rust (stable)** for [Guardian Diag](tools/guardian-diag/) — a portable `Guardian.exe` that diagnoses and edits an agent's local config from a USB stick (see `specs/guardian-diag.md`); the cabinet's installer archive still ships the Go console as `Guardian.exe`
