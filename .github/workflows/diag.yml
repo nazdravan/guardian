@@ -25,3 +25,54 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: tools/guardian-diag
+    steps:
+      # The core tests read the agent's Go sources and compare strings: keep LF endings.
+      - name: keep LF line endings
+        run: git config --global core.autocrlf false
+        working-directory: .
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: i686-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tools/guardian-diag
+      - name: tests (winhost apply on a temp folder, report CLI)
+        run: cargo test -p guardian-core -p guardian-winhost -p guardian --target i686-pc-windows-msvc
+      - name: release build
+        env:
+          GUARDIAN_REQUIRE_WINRES: "1"
+        run: cargo build --release -p guardian --target i686-pc-windows-msvc
+      # dumpbin lives in the Visual Studio developer shell, not on the runner's PATH.
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: smoke test
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path "target/i686-pc-windows-msvc/release/Guardian.exe").Path
+          # Guardian.exe is a GUI-subsystem program: only Start-Process -Wait waits for it
+          # and yields its exit code.
+          $p = Start-Process -FilePath $exe -Wait -PassThru -NoNewWindow `
+            -ArgumentList @("report", "--offline", "--dir", (Resolve-Path "crates/core/tests/fixtures/healthy").Path) `
+            -RedirectStandardOutput report.txt
+          $code = $p.ExitCode
+          Get-Content report.txt
+          if (@(0,10,11) -notcontains $code) { throw "unexpected exit code $code" }
+          if (-not (Select-String -Path report.txt -Pattern "VERDICT:")) { throw "no verdict in the report" }
+          if (Select-String -Path report.txt -Pattern "agt_secret_value_123") { throw "secret leaked" }
+          # One file, no DLL dependencies beyond the OS
+          $deps = dumpbin /dependents $exe
+          $deps
+          $bad = $deps | Select-String -Pattern "VCRUNTIME|MSVCP|api-ms-win-crt"
+          if ($bad) { throw "dynamic CRT: $bad" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Guardian.exe
+          path: tools/guardian-diag/target/i686-pc-windows-msvc/release/Guardian.exe

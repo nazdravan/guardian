@@ -8,7 +8,8 @@ ProcSentinel is a process monitoring and control system with three components:
 - **Server** (Go) — REST API backend using SQLite, runs as a Linux systemd service
 - **Agent** (Go) — Client-side process monitor/killer, runs as a Windows service (also supports Linux/macOS)
 - **Mobile** (Flutter/Dart) — Android management app called "Guardian"
-- **Guardian Console** (Go + lxn/walk) — Windows GUI in `tools/whitelist-gui/` for installing, diagnosing and updating the agent, and editing its local `whitelist.txt`
+- **Guardian Console** (Go + lxn/walk) — Windows GUI in `tools/whitelist-gui/` for installing and updating the agent; it is what the cabinet's installer archive ships as `Guardian.exe`. Its whitelist editing is no longer developed (see Guardian Diag)
+- **Guardian Diag** (Rust + egui) — portable Windows app in `tools/guardian-diag/` that diagnoses the agent and edits its `.env` and `whitelist.txt` (Diagnostics / Configuration / Processes / Log tabs, `Guardian.exe report` CLI); also built as `Guardian.exe`, but not yet in the installer archive. See `specs/guardian-diag.md`
 
 ## Build Commands
 
@@ -36,6 +37,14 @@ cd mobile && ./build.sh        # flutter build apk → ../release/guardian.apk
 Built as 32-bit on purpose so one binary runs on both 32- and 64-bit Windows;
 it detects the OS architecture at run time and installs the matching agent.
 See `specs/whitelist-gui.md`.
+
+### Guardian Diag (Rust, `tools/guardian-diag/`)
+```sh
+cd tools/guardian-diag
+cargo build --release -p guardian --target i686-pc-windows-msvc   # → target/i686-pc-windows-msvc/release/Guardian.exe (Windows, static CRT)
+cargo test --workspace                                            # any OS; fmt + clippy -D warnings are CI gates too
+```
+See `specs/guardian-diag.md`.
 
 ### Flutter icon generation
 ```sh
@@ -140,8 +149,9 @@ Server installs to `/usr/local/bin/guardian/` as a systemd service running as th
 
 ## Rules
 
-- **Always update specs on code changes:** After any code change, update the corresponding files in `specs/` (`server.md`, `agent.md`, `api.md`, `cabinet.md`, `mobile.md`, `whitelist-gui.md`) and this `CLAUDE.md` to keep documentation in sync. This includes API changes, schema changes, config changes, file structure changes, and build output paths.
-- **The agent's `.env` keys are shared with the console:** `agent/agent.go` reads them, `tools/whitelist-gui/envfile.go` (`knownEnvOrder`) writes them, and `dist/agent/agent.env` templates them — change all three together.
+- **Always update specs on code changes:** After any code change, update the corresponding files in `specs/` (`server.md`, `agent.md`, `api.md`, `cabinet.md`, `mobile.md`, `whitelist-gui.md`, `guardian-diag.md`) and this `CLAUDE.md` to keep documentation in sync. This includes API changes, schema changes, config changes, file structure changes, and build output paths.
+- **The agent's `.env` keys are shared with the console:** `agent/agent.go` reads them, `tools/whitelist-gui/envfile.go` (`knownEnvOrder`) writes them, and `dist/agent/agent.env` templates them — change all three together, plus `tools/guardian-diag/crates/core/src/agent.rs`.
+- **Guardian Diag mirrors the agent:** `tools/guardian-diag/crates/core/src/agent.rs` mirrors the agent's protected list, file names, `.env` keys and log strings; `tools/guardian-diag/crates/core/tests/agent_consistency.rs` enforces it by reading `agent/*.go`. A failing test means the agent changed — update `agent.rs` (and `specs/guardian-diag.md`), do not loosen the test.
 
 ## Notes
 
@@ -151,7 +161,7 @@ Server installs to `/usr/local/bin/guardian/` as a systemd service running as th
 - `server/isolation_test.go` is mandatory: every new account-scoped endpoint gets a row in its table
 - Tests that read an account-scoped table back must scope the read, or use `observe(t)` (a pool on the owner role, not subject to RLS) when the point is to observe the database independently of the app's scoping — this now includes `accounts` and `account_members`
 - CI: `.github/workflows/server.yml` runs gofmt, `go vet`, `sqlc diff` (committed `internal/db/` must match `db/queries/`), the full suite against a Postgres 16 service, and the static release build on every push touching `server/`
-- Agent tests (`agent/agent_test.go`) run against an `httptest` server on any platform; mobile tests (`mobile/test/`) run with `flutter test` and need no Android SDK. CI covers server, agent, mobile and the cabinet (`.github/workflows/`); the Windows console is still tested only by hand (`tools/whitelist-gui/test.ps1`)
+- Agent tests (`agent/agent_test.go`) run against an `httptest` server on any platform; mobile tests (`mobile/test/`) run with `flutter test` and need no Android SDK. CI covers server, agent, mobile and the cabinet (`.github/workflows/`); the Go Windows console is still tested only by hand (`tools/whitelist-gui/test.ps1`). `.github/workflows/diag.yml` runs Guardian Diag (fmt, clippy, tests on Linux; tests, release build, `report` smoke test and static-CRT check on `windows-latest`, artifact `Guardian.exe`); its GUI is verified by hand, see the checklist in `specs/guardian-diag.md`
 - `tools/whitelist-gui/builtin.go` mirrors the hardcoded protected-process list in `agent/main.go` and must be kept in sync by hand
 - `tools/mkico` is a separate module (it needs `golang.org/x/image` only to build the console's icon)
 - Server and agent have separate `go.mod` files (modules `server` and `agent`)

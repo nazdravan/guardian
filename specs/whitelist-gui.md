@@ -1,5 +1,7 @@
 # Guardian Console Specification
 
+> **Status:** viewing and editing the agent's config moved to Guardian Diag (`tools/guardian-diag`, see `specs/guardian-diag.md`); this console remains the installer/updater shipped in the cabinet's installer archive. Its whitelist editor is no longer developed.
+
 ## Overview
 
 Guardian Console (`tools/whitelist-gui`, shipped as `Guardian.exe`) is a Windows GUI utility for managing the ProcSentinel agent on a single machine. It covers two jobs:
