@@ -16,6 +16,13 @@ use winreg::enums::HKEY_LOCAL_MACHINE;
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
+/// Absolute path of a Windows tool under `%WINDIR%\System32` (SysWOW64 for a 32-bit process on
+/// 64-bit Windows, which has the same tools). A bare name would make `Command` search the exe's
+/// own folder first, so a `tasklist.exe` planted beside Guardian.exe would run — elevated, too.
+pub fn system32(rel: &str) -> String {
+    format!(r"{}\System32\{rel}", windir().trim_end_matches('\\'))
+}
+
 pub fn run_hidden(program: &str, args: &[&str]) -> std::io::Result<Output> {
     Command::new(program).args(args).creation_flags(CREATE_NO_WINDOW).output()
 }
@@ -139,7 +146,7 @@ pub fn agent_version(image: &str) -> Read<String> {
 }
 
 pub fn tasklist() -> Read<Vec<String>> {
-    match run_hidden("tasklist", &["/FO", "CSV", "/NH"]) {
+    match run_hidden(&system32("tasklist.exe"), &["/FO", "CSV", "/NH"]) {
         Ok(o) if o.status.success() => Read::Ok(guardian_core::parse::tasklist(&crate::text::decode_output(&o.stdout))),
         Ok(o) => Read::Failed(crate::text::decode_output(&o.stderr).trim().to_string()),
         Err(e) => Read::Failed(e.to_string()),
@@ -148,7 +155,7 @@ pub fn tasklist() -> Read<Vec<String>> {
 
 pub fn events() -> Read<Vec<guardian_core::parse::AgentEvent>> {
     let q = format!("/q:*[System[Provider[@Name='{}']]]", agent::SERVICE_NAME);
-    match run_hidden("wevtutil", &["qe", "Application", &q, "/c:2000", "/rd:true", "/f:xml"]) {
+    match run_hidden(&system32("wevtutil.exe"), &["qe", "Application", &q, "/c:2000", "/rd:true", "/f:xml"]) {
         Ok(o) if o.status.success() => guardian_core::parse::wevtutil(&crate::text::decode_output(&o.stdout)).map_or_else(Read::Failed, Read::Ok),
         Ok(o) => {
             let err = crate::text::decode_output(&o.stderr);
@@ -179,7 +186,7 @@ pub fn is_elevated() -> bool {
 pub fn relaunch_elevated(args: &[String]) -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let script = crate::text::runas_script(&exe.to_string_lossy(), args);
-    match run_hidden("powershell", &["-NoProfile", "-NonInteractive", "-Command", &script]) {
+    match run_hidden(&system32(r"WindowsPowerShell\v1.0\powershell.exe"), &["-NoProfile", "-NonInteractive", "-Command", &script]) {
         Ok(o) if o.status.success() => Ok(()),
         Ok(_) => Err("Elevation was cancelled".into()),
         Err(e) => Err(e.to_string()),
