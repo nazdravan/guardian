@@ -102,6 +102,59 @@ pub fn render_env(original: &[u8], changes: &[EnvChange]) -> Result<Vec<u8>, Ren
     Ok(finish(lines))
 }
 
+pub const SCRUBBED_VALUE: &str = "<removed by Guardian>";
+
+/// Keys whose values must never be copied into a backup (R14.3, R4).
+const SECRET_ENV_KEYS: &[&str] = &["BINDING_TOKEN"];
+
+/// Agent-visible key of one raw line (bytes, any encoding): trimmed, `#` comments skipped,
+/// split at the first `=` — the same rule as the agent's readEnvFile/removeEnvKey.
+fn raw_line_key(line: &[u8]) -> Option<String> {
+    let trimmed = match std::str::from_utf8(line) {
+        Ok(s) => s.trim().as_bytes(),
+        Err(_) => line.trim_ascii(),
+    };
+    if trimmed.is_empty() || trimmed.starts_with(b"#") {
+        return None;
+    }
+    let eq = trimmed.iter().position(|&b| b == b'=')?;
+    let key = &trimmed[..eq];
+    let key = match std::str::from_utf8(key) {
+        Ok(s) => s.trim().to_string(),
+        Err(_) => String::from_utf8_lossy(key.trim_ascii()).into_owned(),
+    };
+    Some(key)
+}
+
+/// A copy of `.env` safe to leave on disk as a backup: the value of every agent-visible
+/// `BINDING_TOKEN=` line is replaced by `<removed by Guardian>`; every other byte — the key,
+/// its spacing, comments, line endings, an invalid encoding — is kept as it was.
+pub fn scrub_env_secrets(original: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(original.len());
+    for line in original.split_inclusive(|&b| b == b'\n') {
+        let secret = raw_line_key(line).is_some_and(|k| SECRET_ENV_KEYS.contains(&k.as_str()));
+        if !secret {
+            out.extend_from_slice(line);
+            continue;
+        }
+        let ending: &[u8] = if line.ends_with(b"\r\n") {
+            b"\r\n"
+        } else if line.ends_with(b"\n") {
+            b"\n"
+        } else {
+            b""
+        };
+        let Some(eq) = line.iter().position(|&b| b == b'=') else {
+            out.extend_from_slice(line);
+            continue;
+        };
+        out.extend_from_slice(&line[..=eq]);
+        out.extend_from_slice(SCRUBBED_VALUE.as_bytes());
+        out.extend_from_slice(ending);
+    }
+    out
+}
+
 pub fn render_whitelist(original: &[u8], entries: &[String]) -> Result<Vec<u8>, RenderError> {
     let text = decode(original)?;
     let e = eol(text);
@@ -180,5 +233,24 @@ mod tests {
         assert_eq!(s(render_whitelist(b"a.exe\n", &[]).unwrap()), format!("{EMPTY_WHITELIST_COMMENT}\n"));
         assert_eq!(s(render_whitelist(b"# keep\na.exe\n", &[]).unwrap()), "# keep\n");
         assert_eq!(s(render_whitelist(b"", &[]).unwrap()), format!("{EMPTY_WHITELIST_COMMENT}\r\n"));
+    }
+    #[test]
+    fn scrub_env_secrets_replaces_only_agent_visible_token_values() {
+        let src =
+            b"# BINDING_TOKEN=keep-comment\r\nSERVER_ADDRESS=https://a\r\n  BINDING_TOKEN = abc=def \r\nBINDING_TOKENX=keep\r\nBINDING_TOKEN=last";
+        let out = scrub_env_secrets(src);
+        assert_eq!(
+            s(out),
+            "# BINDING_TOKEN=keep-comment\r\nSERVER_ADDRESS=https://a\r\n  BINDING_TOKEN =<removed by Guardian>\r\nBINDING_TOKENX=keep\r\nBINDING_TOKEN=<removed by Guardian>"
+        );
+    }
+
+    #[test]
+    fn scrub_env_secrets_keeps_everything_else_byte_identical() {
+        let src: &[u8] = b"\xEF\xBB\xBFX=1\nY=\xFF\xFE\n\n#c\nBINDING_TOKEN=t\n";
+        assert_eq!(scrub_env_secrets(src), b"\xEF\xBB\xBFX=1\nY=\xFF\xFE\n\n#c\nBINDING_TOKEN=<removed by Guardian>\n");
+        let clean: &[u8] = b"A=1\r\nB\r\n";
+        assert_eq!(scrub_env_secrets(clean), clean);
+        assert_eq!(scrub_env_secrets(b""), b"");
     }
 }

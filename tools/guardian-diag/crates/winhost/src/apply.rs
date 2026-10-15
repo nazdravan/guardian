@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use chrono::{DateTime, Local};
 use guardian_core::edit::plan::{Expected, FileKind, FileWrite, WritePlan};
+use guardian_core::edit::render::scrub_env_secrets;
 use guardian_core::read::sha256_hex;
 
 pub const KEEP_BACKUPS: usize = 5;
@@ -163,7 +164,16 @@ fn apply_one(fw: &FileWrite, io: &dyn Fn(&Path) -> PathBuf, overwrite: bool, now
     let backup = if let Some(old) = &cur {
         let bn = backup_name(name, now, &dir_io);
         let bp = dir_io.join(&bn);
-        if let Err(e) = write_synced(&bp, old) {
+        // `.env` may still hold the BINDING_TOKEN the agent deletes after enrolling, and the
+        // folder is readable by Users: the backup keeps everything but that value (R14.3).
+        let scrubbed;
+        let backup_bytes: &[u8] = if fw.kind == FileKind::Env {
+            scrubbed = scrub_env_secrets(old);
+            &scrubbed
+        } else {
+            old
+        };
+        if let Err(e) = write_synced(&bp, backup_bytes) {
             let _ = std::fs::remove_file(&bp);
             return Err(fail(Step::Backup, None, e.to_string()));
         }
@@ -375,5 +385,20 @@ mod tests {
         let plan = WritePlan { files: vec![fw(d.path(), FileKind::Env, Some(b"0"), b"1")] };
         let r = apply(&plan, &id, false, at(9, 0, 0)).unwrap();
         assert!(r.written[0].backup.clone().unwrap().exists());
+    }
+    #[test]
+    fn env_backup_does_not_keep_the_binding_token() {
+        let d = tempfile::tempdir().unwrap();
+        let old: &[u8] = b"SERVER_ADDRESS=https://a\r\nBINDING_TOKEN=secret123\r\n";
+        std::fs::write(d.path().join(".env"), old).unwrap();
+        let plan = WritePlan { files: vec![fw(d.path(), FileKind::Env, Some(old), b"SERVER_ADDRESS=https://b\r\nBINDING_TOKEN=secret123\r\n")] };
+        let r = apply(&plan, &id, false, at(14, 12, 0)).unwrap();
+        let b = std::fs::read(r.written[0].backup.clone().unwrap()).unwrap();
+        assert_eq!(b, b"SERVER_ADDRESS=https://a\r\nBINDING_TOKEN=<removed by Guardian>\r\n");
+        // Whitelist backups stay byte-for-byte.
+        std::fs::write(d.path().join("whitelist.txt"), b"BINDING_TOKEN=x\n").unwrap();
+        let plan = WritePlan { files: vec![fw(d.path(), FileKind::Whitelist, Some(b"BINDING_TOKEN=x\n"), b"a.exe\n")] };
+        let r = apply(&plan, &id, false, at(14, 12, 0)).unwrap();
+        assert_eq!(std::fs::read(r.written[0].backup.clone().unwrap()).unwrap(), b"BINDING_TOKEN=x\n");
     }
 }
