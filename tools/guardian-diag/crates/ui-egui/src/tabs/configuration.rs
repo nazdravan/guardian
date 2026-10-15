@@ -12,10 +12,17 @@ use crate::{GuardianApp, theme};
 
 pub enum Dialog {
     DiscardOnRefresh,
-    Confirm { plan: WritePlan, warnings: Vec<Issue> },
-    ChangedOnDisk { plan: WritePlan },
+    Confirm {
+        plan: WritePlan,
+        warnings: Vec<Issue>,
+    },
+    ChangedOnDisk {
+        plan: WritePlan,
+    },
     Restart,
     Error(String),
+    /// The report could not be saved next to the exe: offer another folder.
+    ReportError(String),
 }
 
 pub fn add_entry(app: &mut GuardianApp, raw: &str) -> Result<Vec<Issue>, Issue> {
@@ -339,6 +346,20 @@ pub fn dialogs(app: &mut GuardianApp, ctx: &egui::Context) {
                     }
                 });
             }
+            Dialog::ReportError(m) => {
+                ui.colored_label(theme::palette().error, m.as_str());
+                ui.horizontal(|ui| {
+                    if ui.button("Choose folder…").clicked()
+                        && let (Some(dir), Some(s)) = (rfd::FileDialog::new().pick_folder(), app.snapshot.clone())
+                    {
+                        app.worker = Some(Worker::spawn(Job::SaveReportTo(Box::new(s), dir), ctx.clone()));
+                        keep = false;
+                    }
+                    if ui.button("OK").clicked() {
+                        keep = false;
+                    }
+                });
+            }
             Dialog::Error(m) => {
                 ui.colored_label(theme::palette().error, m);
                 if ui.button("OK").clicked() {
@@ -390,6 +411,6 @@ pub fn on_done(app: &mut GuardianApp, done: Done, ctx: &egui::Context) {
             app.refresh(ctx);
         }
         Done::ReportSaved(Ok(p)) => app.notice = Some((Status::Ok, format!("Report saved to {}", p.display()))),
-        Done::ReportSaved(Err(e)) => app.dialog = Some(Dialog::Error(format!("Could not save the report: {e}. Choose another folder."))),
+        Done::ReportSaved(Err(e)) => app.dialog = Some(Dialog::ReportError(format!("Could not save the report: {e}. Choose another folder."))),
     }
 }

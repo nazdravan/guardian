@@ -1365,6 +1365,7 @@ dependencies = [
  "guardian-core",
  "is_elevated",
  "rustls-native-certs",
+ "serde_json",
  "tempfile",
  "ureq",
  "windows-service",

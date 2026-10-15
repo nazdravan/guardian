@@ -6,8 +6,10 @@ pub mod apply;
 pub mod collect;
 pub mod files;
 pub mod health;
+pub mod report_file;
 pub mod text;
 #[cfg(windows)]
 pub mod win;
 
 pub use collect::{CollectOptions, collect, elevated, io_path, relaunch_elevated, restart_service};
+pub use report_file::{save_report, save_report_to};

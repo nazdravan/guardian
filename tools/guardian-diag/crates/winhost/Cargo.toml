@@ -11,6 +11,7 @@ workspace = true
 [dependencies]
 guardian-core = { workspace = true }
 chrono = { workspace = true }
+serde_json = { workspace = true }
 ureq = { workspace = true }
 rustls-native-certs = { workspace = true }
 

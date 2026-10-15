@@ -14,6 +14,7 @@ pub enum Job {
     Apply { plan: WritePlan, overwrite: bool },
     Restart,
     SaveReport(Box<Snapshot>),
+    SaveReportTo(Box<Snapshot>, PathBuf),
     Relaunch(Vec<String>),
 }
 
@@ -39,7 +40,7 @@ impl Worker {
             Job::Collect(_) => "Reading service, files, log…".to_string(),
             Job::Apply { .. } => "Saving…".into(),
             Job::Restart => "Restarting ProcSentinelAgent…".into(),
-            Job::SaveReport(_) => "Saving report…".into(),
+            Job::SaveReport(_) | Job::SaveReportTo(..) => "Saving report…".into(),
             Job::Relaunch(_) => "Waiting for administrator approval…".into(),
         })));
         let p = Arc::clone(&progress);
@@ -57,8 +58,8 @@ impl Worker {
                 }
                 Job::Restart => Done::Restarted(guardian_winhost::restart_service(&set)),
                 Job::Relaunch(args) => Done::Relaunched(guardian_winhost::relaunch_elevated(&args)),
-                // Task 12 replaces this with guardian_winhost::save_report.
-                Job::SaveReport(_) => Done::ReportSaved(Err("Saving reports arrives in a later task".into())),
+                Job::SaveReport(s) => Done::ReportSaved(guardian_winhost::save_report(&s)),
+                Job::SaveReportTo(s, dir) => Done::ReportSaved(guardian_winhost::save_report_to(&s, &dir)),
             };
             let _ = tx.send(done);
             ctx.request_repaint();

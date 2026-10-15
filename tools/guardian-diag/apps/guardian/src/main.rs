@@ -42,7 +42,7 @@ fn run_report(json: bool, dir: Option<std::path::PathBuf>, offline: bool) -> i32
     // (`Guardian.exe report > report.txt`), but not a bare console. If stdout is
     // unusable, save the report next to the exe instead and say where (spec R25).
     if !print_report(&body) {
-        let msg = match save_report_next_to_exe(&s.machine.hostname, &r) {
+        let msg = match guardian_winhost::save_report(&s) {
             Ok(p) => format!("Saved the report to {}", p.display()),
             Err(e) => format!("Could not print or save the report: {e}"),
         };
@@ -71,14 +71,4 @@ fn print_report(body: &str) -> bool {
     }
     let mut out = std::io::stdout();
     out.write_all(body.as_bytes()).and_then(|_| out.flush()).is_ok()
-}
-
-fn save_report_next_to_exe(host: &str, r: &guardian_core::report::Report) -> Result<std::path::PathBuf, String> {
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let dir = exe.parent().ok_or("no exe folder")?.join("GuardianReports");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let stem = format!("{host}-{}", chrono::Local::now().format("%Y%m%d-%H%M"));
-    std::fs::write(dir.join(format!("{stem}.txt")), &r.text).map_err(|e| e.to_string())?;
-    std::fs::write(dir.join(format!("{stem}.json")), serde_json::to_string_pretty(&r.json).unwrap_or_default()).map_err(|e| e.to_string())?;
-    Ok(dir.join(format!("{stem}.txt")))
 }
