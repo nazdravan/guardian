@@ -183,7 +183,7 @@ Windows Event Log и показывает в одном окне:
    | Последняя синхронизация | mtime `sync.json` против `3 × CHECK_INTERVAL` | файла нет; устарел (с возрастом) |
    | Несохранённые в службе изменения | mtime `.env` / `whitelist.txt` против времени старта службы (Event Log) | файл изменён после старта службы: «changes apply after the service restarts» |
    | Ошибки агента за 24 ч | Event Log | есть `Error`: последние три сообщения |
-   | Отказ сервера | Event Log | сообщения «token is no longer valid», «no longer accepts this computer's token», «computer limit» — с переводом на человеческий |
+   | Отказ сервера | Event Log | сообщения «token is no longer valid», «no longer accepts this computer's token», «plan limit reached» (каждая строка проверяется по исходникам агента/сервера в `agent_consistency.rs`) — с переводом на человеческий |
    | Часы машины | `Date` в ответе `/health` против локального времени | расхождение > 5 мин |
 
 8. Кнопка Refresh перечитывает всё. Автообновления нет: снимок состояния стабилен, пока его

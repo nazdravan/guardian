@@ -105,10 +105,12 @@ fn unknown<T>(r: &Read<T>) -> String {
     r.problem().unwrap_or_default()
 }
 
-const REFUSALS: [(&str, &str); 3] = [
+/// Needles of the agent's refusal log lines (agent.go tryEnroll / sync, client.go errPlanLimit);
+/// tests/agent_consistency.rs checks each one still exists in the Go source.
+pub const REFUSALS: [(&str, &str); 3] = [
     ("token is no longer valid", "The installer's binding token was revoked or expired. Get a new installer token in the cabinet."),
     ("no longer accepts this computer's token", "The computer was unenrolled in the cabinet. Enrol it again with a new binding token."),
-    ("computer limit", "The plan's computer limit is reached. Upgrade the plan or unenrol an unused computer."),
+    ("plan limit reached", "The plan's computer limit is reached. Upgrade the plan or unenrol an unused computer."),
 ];
 
 pub fn diagnose(s: &Snapshot) -> Diagnosis {
@@ -648,5 +650,15 @@ mod tests {
             assert_eq!(d.verdict.kind == VerdictKind::Stale, stale, "offset {offset}");
             assert_eq!(status(&d, CheckId::Sync), if stale { Status::Warn } else { Status::Ok });
         }
+    }
+    #[test]
+    fn plan_limit_refusal_is_recognised() {
+        let mut s = healthy();
+        set_events(&mut s, |e| {
+            e.message = "Enrollment refused: plan limit reached: This account has reached its computer limit. Upgrade the plan in the cabinet; the agent retries on its own every 1m0s.".into()
+        });
+        let d = diagnose(&s);
+        let c = check_of(&d, CheckId::ServerRefusal);
+        assert_eq!((c.status, c.fact.as_str()), (Status::Error, "the server answered: plan limit reached"));
     }
 }

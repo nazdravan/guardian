@@ -68,3 +68,27 @@ fn log_strings_match_agent() {
     assert!(src.contains(&format!("\"{}%s\"", agent::KILL_WHITELIST_PREFIX)));
     assert!(src.contains(&format!("\"{}%s\"", agent::START_MARKER)));
 }
+
+/// Every non-test Go source file in `agent/` and `server/`, concatenated.
+fn go_sources() -> String {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../..");
+    let mut all = String::new();
+    for dir in ["agent", "server"] {
+        for e in std::fs::read_dir(root.join(dir)).unwrap() {
+            let p = e.unwrap().path();
+            let name = p.file_name().unwrap().to_string_lossy().into_owned();
+            if name.ends_with(".go") && !name.ends_with("_test.go") {
+                all.push_str(&std::fs::read_to_string(&p).unwrap());
+            }
+        }
+    }
+    all
+}
+
+#[test]
+fn refusal_needles_exist_in_go_source() {
+    let all = go_sources();
+    for (needle, _) in guardian_core::diagnose::REFUSALS {
+        assert!(all.contains(needle), "no agent/server source contains the refusal text `{needle}`");
+    }
+}
