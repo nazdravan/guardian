@@ -51,12 +51,15 @@ fn run_report(json: bool, dir: Option<std::path::PathBuf>, offline: bool) -> i32
     exit_code(&d)
 }
 
-/// Whether the process has a stdout at all. Rust's std swallows ERROR_INVALID_HANDLE, so a
+/// Whether the process has a usable stdout. Rust's std swallows ERROR_INVALID_HANDLE, so a
 /// GUI-subsystem exe started from a bare console would "write" successfully into nothing.
+/// Null (std maps INVALID_HANDLE_VALUE to null for stdio) means none; an inherited handle
+/// value that is not open in this process fails to duplicate, which also means none.
 #[cfg(windows)]
 fn has_stdout() -> bool {
-    use std::os::windows::io::AsRawHandle;
-    !std::io::stdout().as_raw_handle().is_null()
+    use std::os::windows::io::{AsHandle, AsRawHandle};
+    let out = std::io::stdout();
+    !out.as_raw_handle().is_null() && out.as_handle().try_clone_to_owned().is_ok()
 }
 
 #[cfg(not(windows))]
