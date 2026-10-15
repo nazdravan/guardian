@@ -255,12 +255,21 @@ pub fn diagnose(s: &Snapshot) -> Diagnosis {
 
     // Pending restart (R7, R10)
     let started = s.service_started_at();
-    let changed_after: Vec<&str> =
-        [(crate::agent::ENV_FILE, s.env.as_ok().and_then(|f| f.mtime)), (crate::agent::WHITELIST_FILE, s.whitelist.as_ok().and_then(|f| f.mtime))]
-            .into_iter()
-            .filter(|(_, m)| matches!((m, started), (Some(m), Some(st)) if *m > st))
-            .map(|(n, _)| n)
-            .collect();
+    // The agent itself rewrites `.env` when it enrols (removeEnvKey drops BINDING_TOKEN) and logs
+    // "Enrolled with ..." right after: that change is not one waiting for a restart.
+    let enrolled_at = started.and_then(|st| {
+        s.events.as_ok()?.iter().filter(|e| e.time >= st && e.message.starts_with(crate::agent::ENROLLED_MARKER)).map(|e| e.time).max()
+    });
+    let env_mtime = s
+        .env
+        .as_ok()
+        .and_then(|f| f.mtime)
+        .filter(|m| enrolled_at.is_none_or(|en| *m > en + chrono::Duration::seconds(crate::agent::ENROLL_ENV_REWRITE_SLACK_SECS)));
+    let changed_after: Vec<&str> = [(crate::agent::ENV_FILE, env_mtime), (crate::agent::WHITELIST_FILE, s.whitelist.as_ok().and_then(|f| f.mtime))]
+        .into_iter()
+        .filter(|(_, m)| matches!((m, started), (Some(m), Some(st)) if *m > st))
+        .map(|(n, _)| n)
+        .collect();
     checks.push(match started {
         None => {
             check(CheckId::PendingRestart, "Changes applied", Status::Unknown, "service start time unknown (no start record in the Event Log)", "")
@@ -660,5 +669,50 @@ mod tests {
         let d = diagnose(&s);
         let c = check_of(&d, CheckId::ServerRefusal);
         assert_eq!((c.status, c.fact.as_str()), (Status::Error, "the server answered: plan limit reached"));
+    }
+    fn push_enrolled_event(s: &mut Snapshot, at: chrono::DateTime<chrono::Utc>) {
+        if let Read::Ok(ev) = &mut s.events {
+            let message = "Enrolled with https://guardian.example as PC-01 (machine 1234)".to_string();
+            let kind = crate::parse::classify(&message);
+            ev.push(crate::parse::AgentEvent { time: at, level: crate::parse::Level::Info, message, kind });
+        }
+    }
+
+    #[test]
+    fn env_rewritten_by_enrollment_is_not_pending_restart() {
+        let mut s = healthy();
+        let st = s.service_started_at().unwrap();
+        let enrolled = st + chrono::Duration::seconds(2);
+        push_enrolled_event(&mut s, enrolled);
+        if let Read::Ok(e) = &mut s.env {
+            e.mtime = Some(enrolled); // removeEnvKey runs just before the log line
+        }
+        assert_eq!(status(&diagnose(&s), CheckId::PendingRestart), Status::Ok);
+        if let Read::Ok(e) = &mut s.env {
+            e.mtime = Some(enrolled + chrono::Duration::seconds(10));
+        }
+        assert_eq!(status(&diagnose(&s), CheckId::PendingRestart), Status::Ok);
+    }
+
+    #[test]
+    fn env_edited_well_after_enrollment_is_pending_restart() {
+        let mut s = healthy();
+        let st = s.service_started_at().unwrap();
+        let enrolled = st + chrono::Duration::seconds(2);
+        push_enrolled_event(&mut s, enrolled);
+        if let Read::Ok(e) = &mut s.env {
+            e.mtime = Some(enrolled + chrono::Duration::seconds(11));
+        }
+        let d = diagnose(&s);
+        let c = check_of(&d, CheckId::PendingRestart);
+        assert_eq!(c.status, Status::Warn);
+        assert!(c.fact.starts_with(".env changed"));
+        // An enrollment record from before this start does not excuse a change after it.
+        let mut s = healthy();
+        push_enrolled_event(&mut s, st - chrono::Duration::minutes(5));
+        if let Read::Ok(e) = &mut s.env {
+            e.mtime = Some(st + chrono::Duration::seconds(1));
+        }
+        assert_eq!(status(&diagnose(&s), CheckId::PendingRestart), Status::Warn);
     }
 }

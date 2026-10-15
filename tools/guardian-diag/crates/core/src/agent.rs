@@ -22,6 +22,10 @@ pub const KILL_BLACKLIST_PREFIX: &str = "Killed process: ";
 pub const KILL_WHITELIST_PREFIX: &str = "Killed non-whitelisted process: ";
 /// Logged once per `runAgent`, i.e. once per service start; used as the start time.
 pub const START_MARKER: &str = "Server address: ";
+/// Logged by `tryEnroll` right after it rewrote `.env` to drop BINDING_TOKEN.
+pub const ENROLLED_MARKER: &str = "Enrolled with ";
+/// How long after the "Enrolled with" record a `.env` change still counts as the agent's own.
+pub const ENROLL_ENV_REWRITE_SLACK_SECS: i64 = 10;
 
 /// `isSystemProcess`'s hardcoded list, lower case, in the agent's order.
 #[rustfmt::skip]

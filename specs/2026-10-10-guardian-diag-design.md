@@ -181,7 +181,7 @@ Windows Event Log и показывает в одном окне:
    | Привязка | `agent_credentials.json` | файла нет; `server_address` в нём ≠ `SERVER_ADDRESS` (агент считает себя непривязанным) |
    | Остаток `BINDING_TOKEN` | `.env` | есть после привязки (агент не смог его стереть или его игнорирует) |
    | Последняя синхронизация | mtime `sync.json` против `3 × CHECK_INTERVAL` | файла нет; устарел (с возрастом) |
-   | Несохранённые в службе изменения | mtime `.env` / `whitelist.txt` против времени старта службы (Event Log) | файл изменён после старта службы: «changes apply after the service restarts» |
+   | Несохранённые в службе изменения | mtime `.env` / `whitelist.txt` против времени старта службы (Event Log); `.env` не считается, если после старта есть запись «Enrolled with …» и mtime `.env` не позже неё + 10 с (агент сам переписал `.env`, удаляя `BINDING_TOKEN`) | файл изменён после старта службы: «changes apply after the service restarts» |
    | Ошибки агента за 24 ч | Event Log | есть `Error`: последние три сообщения |
    | Отказ сервера | Event Log | сообщения «token is no longer valid», «no longer accepts this computer's token», «plan limit reached» (каждая строка проверяется по исходникам агента/сервера в `agent_consistency.rs`) — с переводом на человеческий |
    | Часы машины | `Date` в ответе `/health` против локального времени | расхождение > 5 мин |

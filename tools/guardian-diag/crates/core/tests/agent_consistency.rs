@@ -67,6 +67,11 @@ fn log_strings_match_agent() {
     assert!(src.contains(&format!("\"{}%s\"", agent::KILL_BLACKLIST_PREFIX)));
     assert!(src.contains(&format!("\"{}%s\"", agent::KILL_WHITELIST_PREFIX)));
     assert!(src.contains(&format!("\"{}%s\"", agent::START_MARKER)));
+    assert!(src.contains(&format!("Infof(\"{}%s as %s (machine %s)\"", agent::ENROLLED_MARKER)));
+    // The "Enrolled with" record comes right after removeEnvKey rewrote .env.
+    let rewrite = src.find("removeEnvKey(envFileName, \"BINDING_TOKEN\")").expect("removeEnvKey call");
+    let logged = src.find(&format!("\"{}%s", agent::ENROLLED_MARKER)).expect("Enrolled with record");
+    assert!(rewrite < logged);
 }
 
 /// Every non-test Go source file in `agent/` and `server/`, concatenated.
