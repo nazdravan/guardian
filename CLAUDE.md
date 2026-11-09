@@ -73,6 +73,7 @@ cd mobile && flutter pub run flutter_launcher_icons
 - Styled with Tailwind via CDN (config inlined in a `<script>`), fonts from Google Fonts (Space Grotesk / Inter / JetBrains Mono)
 - Dark "terminal" aesthetic with an animated "fleet console" hero (vanilla JS, respects `prefers-reduced-motion`)
 - Brand assets in `docs/assets/` (also used by `README.md`); served directly via GitHub Pages from the `docs/` folder
+- App screenshots in `docs/assets/screenshots/` (720px-wide JPEGs of the Android app, v2.1.0), shown in the landing's `#app` section and in `README.md`; the section's captions are i18n keys `app_*`/`shot_*` in all five languages
 - Preview locally: `cd docs && python3 -m http.server 8099` → http://localhost:8099
 
 ### API Endpoints

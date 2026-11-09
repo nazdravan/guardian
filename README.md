@@ -21,6 +21,16 @@
 
 <br />
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/assets/screenshots/dashboard.jpg" alt="Dashboard: blacklist / whitelist applications" width="200" />
+  <img src="docs/assets/screenshots/system.jpg" alt="System: fleet-wide power switch" width="200" />
+  <img src="docs/assets/screenshots/computers.jpg" alt="Computers: registered machines, lock and release" width="200" />
+  <img src="docs/assets/screenshots/settings.jpg" alt="Settings: server address and admin token" width="200" />
+</p>
+
+---
 
 ## Quick Start
 

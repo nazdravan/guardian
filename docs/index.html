@@ -117,6 +117,13 @@
     .tile-alarm { border-color: rgba(255,92,108,.55) !important; }
 
     /* Reveal on load / scroll */
+    .shot { flex: 0 0 62%; max-width: 260px; }
+    @media (min-width: 640px) { .shot { flex-basis: 40%; } }
+    @media (min-width: 1024px) { .shot { max-width: none; } }
+    .phone { border-radius: 28px; padding: 7px; background: linear-gradient(180deg,#1E2A24,#0E1412); border:1px solid #16201B; box-shadow: 0 30px 60px -30px rgba(74,222,128,.35); transition: transform .3s ease, box-shadow .3s ease; }
+    .phone img { display:block; width:100%; height:auto; border-radius: 22px; }
+    .shot:hover .phone { transform: translateY(-4px); box-shadow: 0 34px 64px -28px rgba(74,222,128,.55); }
+    .shots { scrollbar-width: thin; scrollbar-color: #1E2A24 transparent; }
     .reveal { opacity:0; transform: translateY(14px); }
     .reveal.in { opacity:1; transform:none; transition: opacity .7s cubic-bezier(.2,.7,.2,1), transform .7s cubic-bezier(.2,.7,.2,1); }
 
@@ -150,6 +157,7 @@
       <div class="flex items-center gap-3">
         <div class="hidden items-center gap-8 md:flex">
           <a href="#features" class="nav-link font-mono text-[0.8rem] text-muted hover:text-ink" data-i18n="nav_features">Features</a>
+          <a href="#app" class="nav-link font-mono text-[0.8rem] text-muted hover:text-ink" data-i18n="nav_app">App</a>
           <a href="#how" class="nav-link font-mono text-[0.8rem] text-muted hover:text-ink" data-i18n="nav_how">How it works</a>
           <a href="#modes" class="nav-link font-mono text-[0.8rem] text-muted hover:text-ink" data-i18n="nav_modes">Modes</a>
           <a href="#deploy" class="nav-link font-mono text-[0.8rem] text-muted hover:text-ink" data-i18n="nav_deploy">Deploy</a>
@@ -173,6 +181,7 @@
     <div id="mobileMenu" class="hidden border-t border-line-soft bg-void/95 px-5 py-4 md:hidden">
       <div class="flex flex-col gap-1 font-mono text-sm">
         <a href="#features" class="rounded-lg px-3 py-2.5 text-muted hover:bg-raised hover:text-ink" data-i18n="nav_features">Features</a>
+        <a href="#app" class="rounded-lg px-3 py-2.5 text-muted hover:bg-raised hover:text-ink" data-i18n="nav_app">App</a>
         <a href="#how" class="rounded-lg px-3 py-2.5 text-muted hover:bg-raised hover:text-ink" data-i18n="nav_how">How it works</a>
         <a href="#modes" class="rounded-lg px-3 py-2.5 text-muted hover:bg-raised hover:text-ink" data-i18n="nav_modes">Modes</a>
         <a href="#deploy" class="rounded-lg px-3 py-2.5 text-muted hover:bg-raised hover:text-ink" data-i18n="nav_deploy">Deploy</a>
@@ -316,6 +325,49 @@
           <h3 class="font-display text-lg font-600" data-i18n="feat6_t">Lightweight by design</h3>
           <p class="mt-2 text-sm leading-relaxed text-muted" data-i18n="feat6_b">A single Go binary with embedded SQLite — no CGO, no database server. Run it directly, as a systemd service, or in Docker.</p>
         </article>
+      </div>
+    </section>
+
+    <!-- ============ THE APP ============ -->
+    <section id="app" class="mx-auto max-w-shell px-5 py-20 sm:px-8">
+      <div class="reveal mb-12 max-w-2xl">
+        <p class="kicker"><span class="slash">//</span> <span data-i18n="app_kicker">The app</span></p>
+        <h2 class="h-section mt-3 text-3xl sm:text-[2.6rem]" data-i18n="app_h2">Your fleet, in your pocket.</h2>
+        <p class="mt-4 text-muted" data-i18n="app_intro">The Guardian Android app is the whole console: four tabs, no desktop needed.</p>
+      </div>
+      <div class="shots -mx-5 flex snap-x snap-mandatory scroll-px-5 gap-6 overflow-x-auto px-5 pb-4 sm:scroll-px-0 sm:mx-0 sm:px-0 lg:grid lg:grid-cols-4 lg:overflow-visible">
+        <figure class="reveal shot snap-start">
+          <div class="phone"><img src="assets/screenshots/dashboard.jpg" width="720" height="1600" loading="lazy" alt="Dashboard" data-i18n-alt="shot_dash_t"></div>
+          <figcaption class="mt-5">
+            <span class="font-mono text-[0.72rem] text-guardian">01</span>
+            <h3 class="mt-1 font-display text-lg font-600" data-i18n="shot_dash_t">Dashboard</h3>
+            <p class="mt-1.5 text-sm leading-relaxed text-muted" data-i18n="shot_dash_b">Switch between blacklist and whitelist and toggle each application with one tap.</p>
+          </figcaption>
+        </figure>
+        <figure class="reveal shot snap-start">
+          <div class="phone"><img src="assets/screenshots/system.jpg" width="720" height="1600" loading="lazy" alt="System" data-i18n-alt="shot_sys_t"></div>
+          <figcaption class="mt-5">
+            <span class="font-mono text-[0.72rem] text-guardian">02</span>
+            <h3 class="mt-1 font-display text-lg font-600" data-i18n="shot_sys_t">System</h3>
+            <p class="mt-1.5 text-sm leading-relaxed text-muted" data-i18n="shot_sys_b">One button turns enforcement on or off for the whole fleet.</p>
+          </figcaption>
+        </figure>
+        <figure class="reveal shot snap-start">
+          <div class="phone"><img src="assets/screenshots/computers.jpg" width="720" height="1600" loading="lazy" alt="Computers" data-i18n-alt="shot_comp_t"></div>
+          <figcaption class="mt-5">
+            <span class="font-mono text-[0.72rem] text-guardian">03</span>
+            <h3 class="mt-1 font-display text-lg font-600" data-i18n="shot_comp_t">Computers</h3>
+            <p class="mt-1.5 text-sm leading-relaxed text-muted" data-i18n="shot_comp_b">Every registered machine with its last check-in; lock or release one, or all at once.</p>
+          </figcaption>
+        </figure>
+        <figure class="reveal shot snap-start">
+          <div class="phone"><img src="assets/screenshots/settings.jpg" width="720" height="1600" loading="lazy" alt="Settings" data-i18n-alt="shot_set_t"></div>
+          <figcaption class="mt-5">
+            <span class="font-mono text-[0.72rem] text-guardian">04</span>
+            <h3 class="mt-1 font-display text-lg font-600" data-i18n="shot_set_t">Settings</h3>
+            <p class="mt-1.5 text-sm leading-relaxed text-muted" data-i18n="shot_set_b">Point the app at your server, add the admin token, test the connection.</p>
+          </figcaption>
+        </figure>
       </div>
     </section>
 
@@ -481,6 +533,7 @@ Settings → server + token</code></pre>
     // ============ i18n ============
     const I18N = {
       en: {
+        nav_app: "App", app_kicker: "The app", app_h2: "Your fleet, in your pocket.", app_intro: "The Guardian Android app is the whole console: four tabs, no desktop needed.", shot_dash_t: "Dashboard", shot_dash_b: "Switch between blacklist and whitelist and toggle each application with one tap.", shot_sys_t: "System", shot_sys_b: "One button turns enforcement on or off for the whole fleet.", shot_comp_t: "Computers", shot_comp_b: "Every registered machine with its last check-in; lock or release one, or all at once.", shot_set_t: "Settings", shot_set_b: "Point the app at your server, add the admin token, test the connection.",
         nav_features: "Features", nav_how: "How it works", nav_modes: "Modes", nav_deploy: "Deploy",
         hero_kicker: "Process control for Windows fleets",
         hero_h1: "Control every process<br class='hidden sm:block'> <span class='text-guardian glow'>across your fleet.</span>",
@@ -517,6 +570,7 @@ Settings → server + token</code></pre>
         __menu: "Open menu",
       },
       ro: {
+        nav_app: "Aplicația", app_kicker: "Aplicația", app_h2: "Toată flota, în buzunar.", app_intro: "Aplicația Android Guardian e consola completă: patru tab-uri, fără calculator.", shot_dash_t: "Panou", shot_dash_b: "Comuți între blacklist și whitelist și activezi fiecare aplicație dintr-o atingere.", shot_sys_t: "Sistem", shot_sys_b: "Un singur buton pornește sau oprește controlul pe toată flota.", shot_comp_t: "Calculatoare", shot_comp_b: "Fiecare mașină înregistrată, cu ultima conectare; blochezi sau eliberezi una sau pe toate.", shot_set_t: "Setări", shot_set_b: "Introduci adresa serverului și token-ul de admin, apoi testezi conexiunea.",
         nav_features: "Funcții", nav_how: "Cum funcționează", nav_modes: "Moduri", nav_deploy: "Instalare",
         hero_kicker: "Control al proceselor pentru flote Windows",
         hero_h1: "Controlează fiecare proces<br class='hidden sm:block'> <span class='text-guardian glow'>din toată flota ta.</span>",
@@ -553,6 +607,7 @@ Settings → server + token</code></pre>
         __menu: "Deschide meniul",
       },
       ru: {
+        nav_app: "Приложение", app_kicker: "Приложение", app_h2: "Весь парк — в кармане.", app_intro: "Android-приложение Guardian — это вся консоль: четыре вкладки, компьютер не нужен.", shot_dash_t: "Панель", shot_dash_b: "Переключайтесь между чёрным и белым списком и включайте каждое приложение одним касанием.", shot_sys_t: "Система", shot_sys_b: "Одна кнопка включает или выключает контроль на всём парке.", shot_comp_t: "Компьютеры", shot_comp_b: "Все зарегистрированные машины с последней связью; блокируйте по одной или все сразу.", shot_set_t: "Настройки", shot_set_b: "Укажите адрес сервера и токен администратора, проверьте соединение.",
         nav_features: "Возможности", nav_how: "Как это работает", nav_modes: "Режимы", nav_deploy: "Установка",
         hero_kicker: "Контроль процессов для парка Windows-машин",
         hero_h1: "Контролируйте каждый процесс<br class='hidden sm:block'> <span class='text-guardian glow'>на всём вашем парке.</span>",
@@ -589,6 +644,7 @@ Settings → server + token</code></pre>
         __menu: "Открыть меню",
       },
       es: {
+        nav_app: "App", app_kicker: "La app", app_h2: "Toda la flota, en tu bolsillo.", app_intro: "La app Android de Guardian es la consola completa: cuatro pestañas, sin ordenador.", shot_dash_t: "Panel", shot_dash_b: "Cambia entre lista negra y blanca y activa cada aplicación con un toque.", shot_sys_t: "Sistema", shot_sys_b: "Un solo botón activa o desactiva el control en toda la flota.", shot_comp_t: "Equipos", shot_comp_b: "Cada máquina registrada con su última conexión; bloquea o libera una, o todas a la vez.", shot_set_t: "Ajustes", shot_set_b: "Indica la dirección del servidor y el token de administrador, y prueba la conexión.",
         nav_features: "Funciones", nav_how: "Cómo funciona", nav_modes: "Modos", nav_deploy: "Despliegue",
         hero_kicker: "Control de procesos para flotas Windows",
         hero_h1: "Controla cada proceso<br class='hidden sm:block'> <span class='text-guardian glow'>en toda tu flota.</span>",
@@ -625,6 +681,7 @@ Settings → server + token</code></pre>
         __menu: "Abrir menú",
       },
       de: {
+        nav_app: "App", app_kicker: "Die App", app_h2: "Die ganze Flotte in der Hosentasche.", app_intro: "Die Guardian-Android-App ist die komplette Konsole: vier Tabs, kein PC nötig.", shot_dash_t: "Dashboard", shot_dash_b: "Zwischen Black- und Whitelist wechseln und jede Anwendung mit einem Tipp schalten.", shot_sys_t: "System", shot_sys_b: "Ein Knopf schaltet die Durchsetzung für die ganze Flotte ein oder aus.", shot_comp_t: "Computer", shot_comp_b: "Jede registrierte Maschine mit letztem Kontakt; einzeln oder alle auf einmal sperren.", shot_set_t: "Einstellungen", shot_set_b: "Serveradresse und Admin-Token eintragen, Verbindung testen.",
         nav_features: "Funktionen", nav_how: "So funktioniert's", nav_modes: "Modi", nav_deploy: "Einrichtung",
         hero_kicker: "Prozesskontrolle für Windows-Flotten",
         hero_h1: "Kontrolliere jeden Prozess<br class='hidden sm:block'> <span class='text-guardian glow'>in deiner ganzen Flotte.</span>",
@@ -671,6 +728,10 @@ Settings → server + token</code></pre>
       document.querySelectorAll('[data-i18n]').forEach(el => {
         const v = dict[el.dataset.i18n];
         if (v != null) el.innerHTML = v;
+      });
+      document.querySelectorAll('[data-i18n-alt]').forEach(el => {
+        const v = dict[el.dataset.i18nAlt];
+        if (v != null) el.alt = v;
       });
       if (dict.__title) document.title = dict.__title;
       const setMeta = (sel, val) => { const m = document.querySelector(sel); if (m && val) m.setAttribute('content', val); };
