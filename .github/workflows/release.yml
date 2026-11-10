@@ -68,9 +68,12 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      # Pinned to the line the project was created with (mobile/.metadata): newer
+      # Flutter demands a newer Gradle/AGP than mobile/android ships.
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: 3.35.x
           cache: true
 
       - name: go vet
