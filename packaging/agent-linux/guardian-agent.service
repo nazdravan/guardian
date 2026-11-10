@@ -1,0 +1,15 @@
+[Unit]
+Description=Guardian Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# The agent reads .env and whitelist.txt from its working directory.
+WorkingDirectory=/opt/guardian-agent
+ExecStart=/opt/guardian-agent/procsentinel-agent
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target

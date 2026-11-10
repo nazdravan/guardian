@@ -34,25 +34,37 @@
 
 ## Quick Start
 
-Pre-built binaries live in the `dist/` directory:
+Download `guardian-<version>.zip` from [Releases](https://github.com/nazdravan/guardian/releases)
+and unpack it:
 
 ```
-dist/
-├── server/
-│   ├── guardian-server              # Server binary (Linux)
+guardian-<version>/
+├── server/                          # Linux server
+│   ├── guardian-server              # Server binary (linux/amd64)
 │   ├── server.env                   # Server config template
-│   ├── install.sh                   # Install script
-│   └── docker-compose.yml           # Docker Compose config
-├── guardian.apk                     # Mobile app (Android)
-└── agent/
-    ├── agent.env                    # Agent config template
-    ├── Install-Guardian.bat         # Auto-detect arch and install agent
-    └── Uninstall-Guardian.bat       # Auto-detect arch and uninstall
+│   ├── install.sh                   # Install as a systemd service
+│   ├── guardian-server.service
+│   ├── Dockerfile
+│   └── docker-compose.yml
+├── agent-windows/
+│   ├── Guardian.exe                 # Guardian Console: install, diagnose, edit whitelist
+│   ├── agent.env                    # Agent config template
+│   ├── Install-Guardian.bat         # Auto-detect arch and install agent
+│   ├── Uninstall-Guardian.bat       # Auto-detect arch and uninstall
+│   └── bin/                         # PowerShell installers + 32/64-bit agent
+├── agent-linux/
+│   ├── procsentinel-agent           # Agent binary (linux/amd64)
+│   ├── agent.env                    # Agent config template
+│   ├── install.sh / uninstall.sh
+│   └── guardian-agent.service
+└── guardian.apk                     # Mobile app (Android)
 ```
+
+To build the archive yourself: `./scripts/package.sh` → `dist/guardian-<VERSION>.zip`.
 
 ### 1. Server (Linux)
 
-Copy `dist/server/` to your server, then rename and configure the env file:
+Copy `server/` to your server, then rename and configure the env file:
 
 ```bash
 cp server.env .env
@@ -82,6 +94,12 @@ TOKEN=your_token_here
 ```
 
 Double-click `Install-Guardian.bat` (auto-detects 32/64-bit and runs the right installer as admin). The installer prompts for an optional `IDENTITY` number to register the computer with the server. To remove it, double-click `Uninstall-Guardian.bat`.
+
+### Agent (Linux)
+
+Edit `agent-linux/agent.env`, then run `sudo ./install.sh` from that folder. It installs the
+agent to `/opt/guardian-agent/` as the `guardian-agent` systemd service. Review
+`/opt/guardian-agent/whitelist.txt` after the first start; `sudo ./uninstall.sh` removes it.
 
 ### 3. Mobile app (Android)
 

@@ -44,7 +44,7 @@ func agentExeNames() []string {
 }
 
 // agentSearchPaths lists where the agent executable is looked for, relative to
-// the console's own directory, matching the shipped dist/agent/ layout.
+// the console's own directory, matching the agent-windows/ folder of the release archive.
 func agentSearchPaths(guiDir, arch string) []string {
 	name := agentExeName(arch)
 	return []string{

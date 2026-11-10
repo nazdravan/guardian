@@ -16,6 +16,14 @@ All notable changes to this project will be documented in this file.
 ### Agent
 - Add `guardian.exe` to the protected-process list, so the console is not closed by the agent in whitelist mode
 
+### Release
+- One release archive `guardian-<version>.zip`: server, Windows agent (with Guardian Console), Linux agent and the Android app, each with its config templates
+- Linux agent package: `install.sh`, `uninstall.sh` and a `guardian-agent` systemd unit
+- `scripts/package.sh` builds the archive; GitHub Actions runs it only on push to `main` and publishes a release when `VERSION` changes
+- Binaries are no longer committed: `dist/` is build output, templates moved to `packaging/`
+- The APK is signed with a release keystore from GitHub Secrets instead of the debug key
+- Server `install.sh` no longer overwrites an existing `.env` and works when started without root
+
 ### Docs
 - Add `specs/whitelist-gui.md`
 

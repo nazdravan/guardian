@@ -148,3 +148,18 @@ This ensures the agent continues enforcing rules even when the PC is offline, in
 |-------------------|-----------------------------------------------------|
 | `agent/build64.ps1` | `dist/agent/bin/agent/procsentinel-agent64.exe`   |
 | `agent/build32.ps1` | `dist/agent/bin/agent/procsentinel-agent32.exe`   |
+
+The release archive (`scripts/package.sh`) cross-compiles all three targets with `CGO_ENABLED=0`:
+`windows/amd64` and `windows/386` into `agent-windows/bin/agent/`, and `linux/amd64` into `agent-linux/`.
+
+### Linux install
+
+`agent-linux/install.sh` (templates in `packaging/agent-linux/`) installs the binary to
+`/opt/guardian-agent/` and runs it as the `guardian-agent` systemd service (root, `Restart=always`,
+`WorkingDirectory=/opt/guardian-agent`, since the agent reads `.env` and `whitelist.txt` from its
+working directory). `.env` is written from `agent.env` only on first install. `uninstall.sh` removes
+the service and keeps the folder; `uninstall.sh --purge` deletes it too.
+
+On Linux the agent runs in console mode (no service flags). Its first run generates `whitelist.txt`
+from the processes running at that moment, so in whitelist mode anything started later and not in
+that file is killed: review `whitelist.txt` after the first start.

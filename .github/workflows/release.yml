@@ -1,0 +1,119 @@
+# Builds the release archive on every push to main, and publishes it as a
+# GitHub Release only when ./VERSION names a version that has no tag yet.
+#
+#   guardian-<version>.zip
+#     server/  agent-windows/  agent-linux/  guardian.apk
+#
+# See scripts/package.sh for the layout. To ship a release: bump VERSION and
+# push to main. Any other push just rebuilds and keeps the zip as a run artifact.
+name: release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  console-tests:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/whitelist-gui/go.mod
+          cache-dependency-path: tools/whitelist-gui/go.sum
+      # -SkipGui: the window smoke test needs an interactive desktop; the
+      # parsing, file and install logic is still covered.
+      - name: Guardian Console tests
+        shell: pwsh
+        run: ./tools/whitelist-gui/test.ps1 -SkipGui
+
+  package:
+    needs: console-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read VERSION
+        id: version
+        run: |
+          v="$(tr -d '[:space:]' < VERSION)"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/$v" >/dev/null; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "Tag $v exists: building without publishing."
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "New version $v: will publish a release."
+          fi
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: |
+            server/go.sum
+            agent/go.sum
+            tools/whitelist-gui/go.sum
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: go vet
+        run: |
+          (cd server && go vet ./...)
+          (cd agent && go vet ./... && GOOS=windows go vet ./...)
+
+      # A published APK must be signed with the release key, or phones refuse
+      # to update over the previous version.
+      - name: Release keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          RELEASE: ${{ steps.version.outputs.release }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            if [ "$RELEASE" = "true" ]; then
+              echo "::error::ANDROID_KEYSTORE_BASE64 is not set; refusing to publish a debug-signed APK."
+              exit 1
+            fi
+            echo "::warning::No release keystore; the APK in this artifact is debug-signed."
+            exit 0
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+
+      - name: Build the archive
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./scripts/package.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: guardian-${{ steps.version.outputs.version }}
+          path: dist/guardian-${{ steps.version.outputs.version }}.zip
+
+      - name: Publish the release
+        if: steps.version.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ steps.version.outputs.version }}
+        run: |
+          gh release create "$V" "dist/guardian-$V.zip" \
+            --title "Guardian $V" --target "$GITHUB_SHA" --generate-notes

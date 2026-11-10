@@ -127,7 +127,7 @@ One deliberate exception: **service registration and deregistration stay delegat
 
 ### Locating the Agent Executable
 
-Resolved relative to the GUI executable's own directory, matching the shipped `dist/agent/` layout:
+Resolved relative to the GUI executable's own directory, matching the `agent-windows/` folder of the release archive (and the `dist/agent/` build layout):
 
 | Order | Path relative to the GUI executable |
 |---|---|

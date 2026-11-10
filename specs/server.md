@@ -216,7 +216,9 @@ Loaded from `.env` file in working directory. Environment variables take precede
 
 ## Deployment
 
-- Installs to `/usr/local/bin/procsentinel/` as a systemd service
+- Ships in `server/` of the release archive (`scripts/package.sh`, templates in `packaging/server/`)
+- `install.sh` installs to `/usr/local/bin/guardian/` as the `guardian-server` systemd service; it writes `.env` from `server.env` only on first install, so upgrades keep the tokens
+- Built static: `CGO_ENABLED=0 GOOS=linux GOARCH=amd64`
 - Database file created in working directory (`./guardian.db`)
 - Listens on port 8080 by default
 - No CGO required (`modernc.org/sqlite` is pure Go)

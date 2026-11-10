@@ -37,6 +37,14 @@ Built as 32-bit on purpose so one binary runs on both 32- and 64-bit Windows;
 it detects the OS architecture at run time and installs the matching agent.
 See `specs/whitelist-gui.md`.
 
+### Release archive
+```sh
+./scripts/package.sh           # builds everything → dist/guardian-<VERSION>.zip (SKIP_APK=1 to skip Flutter)
+```
+Needs Go, zip and Flutter. All Go builds use `CGO_ENABLED=0` and cross-compile from any OS.
+GitHub Actions (`.github/workflows/release.yml`) runs this **only on push to `main`**; it
+publishes a GitHub Release only when `VERSION` names a version with no tag yet.
+
 ### Flutter icon generation
 ```sh
 cd mobile && flutter pub run flutter_launcher_icons
@@ -96,16 +104,26 @@ cd mobile && flutter pub run flutter_launcher_icons
 
 ## Deployment
 
-### Dist structure
+### Packaging
+`dist/` is build output only and is **not tracked by git**. The templates and install scripts live
+in `packaging/`; `scripts/package.sh` copies them next to the freshly built binaries:
 ```
-dist/
-├── server/          # Server binary, .env template, systemd service, install.sh, Docker files
-├── guardian.apk     # Mobile app
-└── agent/           # Agent .env template, Install/Uninstall .bat files, PowerShell scripts, binaries,
-                     # and Guardian.exe (the console)
+guardian-<VERSION>.zip
+└── guardian-<VERSION>/
+    ├── server/          # guardian-server (linux/amd64), server.env, install.sh, systemd unit, Docker files
+    ├── agent-windows/   # Guardian.exe (console), Install/Uninstall .bat, agent.env,
+    │                    # bin/ (Install/Uninstall-Agent32/64.ps1, agent/procsentinel-agent32/64.exe)
+    ├── agent-linux/     # procsentinel-agent (linux/amd64), agent.env, install.sh, uninstall.sh,
+    │                    # guardian-agent.service
+    └── guardian.apk     # Mobile app, signed with the release keystore from GitHub Secrets
 ```
+`VERSION` (repo root) is the release version; it is also the APK's `versionName`, and the CI
+run number its `versionCode`. APK signing secrets: `ANDROID_KEYSTORE_BASE64`,
+`ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`.
 
-Server installs to `/usr/local/bin/procsentinel/` as a systemd service. Agent and server both read `.env` files for configuration (`SERVER_ADDRESS`, `TOKEN`, `ADMIN_TOKEN`).
+Server installs to `/usr/local/bin/guardian/` as the `guardian-server` systemd service; the Linux
+agent installs to `/opt/guardian-agent/` as `guardian-agent`. Both install scripts write `.env`
+only on first install, so an upgrade keeps the configured tokens. Agent and server both read `.env` files for configuration (`SERVER_ADDRESS`, `TOKEN`, `ADMIN_TOKEN`).
 
 ## Rules
 
@@ -118,4 +136,4 @@ Server installs to `/usr/local/bin/procsentinel/` as a systemd service. Agent an
 - `tools/mkico` is a separate module (it needs `golang.org/x/image` only to build the console's icon)
 - Server and agent have separate `go.mod` files (modules `server` and `agent`)
 - Server uses pure Go SQLite (`modernc.org/sqlite`) — CGO is NOT required for server builds
-- Agent builds require `CGO_ENABLED=1`
+- The agent has no cgo code; `build*.ps1` set `CGO_ENABLED=1`, but `scripts/package.sh` builds it with `CGO_ENABLED=0`

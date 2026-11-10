@@ -117,5 +117,5 @@ Two places duplicate logic and must be kept in sync by hand:
 
 * `builtin.go` — a copy of the hardcoded process list from `agent/main.go`.
 * The install flow — the same procedure as
-  `dist/agent/bin/Install-Agent*.ps1`. Unifying them was deliberately rejected;
+  `packaging/agent-windows/bin/Install-Agent*.ps1`. Unifying them was deliberately rejected;
   see *Decisions* in the specification.
