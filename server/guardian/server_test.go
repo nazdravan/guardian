@@ -75,3 +75,31 @@ func TestSyncUsesClientToken(t *testing.T) {
 		t.Errorf("fresh server should sync mode free, got %s", body)
 	}
 }
+
+func TestUpdateComputerKeepsLastSync(t *testing.T) {
+	s, ts := newTestServer(t)
+	if _, err := s.db.Exec("INSERT INTO computers (identity, blocked, datetime) VALUES (7, 0, datetime('now', '-10 minutes'))"); err != nil {
+		t.Fatal(err)
+	}
+	var before string
+	s.db.QueryRow("SELECT datetime FROM computers WHERE identity = 7").Scan(&before)
+
+	if code, body := do(t, "PUT", ts.URL+"/manage/computers", "admin", `{"identity":7,"blocked":true}`); code != http.StatusOK {
+		t.Fatalf("PUT /manage/computers = %d: %s", code, body)
+	}
+	var after string
+	var blocked bool
+	s.db.QueryRow("SELECT datetime, blocked FROM computers WHERE identity = 7").Scan(&after, &blocked)
+	if !blocked {
+		t.Error("computer 7 should be blocked")
+	}
+	if after != before {
+		t.Errorf("last sync changed from %s to %s by blocking", before, after)
+	}
+
+	// An unknown computer is still created with the requested state.
+	do(t, "PUT", ts.URL+"/manage/computers", "admin", `{"identity":9,"blocked":true}`)
+	if err := s.db.QueryRow("SELECT blocked FROM computers WHERE identity = 9").Scan(&blocked); err != nil || !blocked {
+		t.Errorf("computer 9: blocked=%v err=%v, want created and blocked", blocked, err)
+	}
+}

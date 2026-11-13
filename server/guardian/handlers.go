@@ -397,7 +397,7 @@ func (s *Server) handleUpdateComputer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err := s.db.Exec("INSERT OR REPLACE INTO computers (identity, blocked) VALUES (?, ?)", req.Identity, req.Blocked)
+	_, err := s.db.Exec("INSERT INTO computers (identity, blocked) VALUES (?, ?) ON CONFLICT(identity) DO UPDATE SET blocked = excluded.blocked", req.Identity, req.Blocked)
 	if err != nil {
 		slog.Error("failed to update computer", "identity", req.Identity, "error", err)
 		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: "Failed to update computer"})
