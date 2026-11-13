@@ -85,10 +85,9 @@ of the lesson, it runs the server, and the teacher blocks applications and compu
   `server/main.go` as a thin Linux entry point), with an explicit DB path, listen address
   and tokens instead of reading `./.env` / `./guardian.db` from the working directory.
   The Linux binary's behaviour and API must stay identical.
-- **GUI talks to the server in-process** (direct calls into the server's cache/DB layer)
-  rather than over HTTP to itself — the builder may choose HTTP-to-localhost instead if it
-  keeps the refactor smaller; either way changes made from the phone must show up in the
-  window (refresh every ~3 s).
+- **GUI talks to the in-process server over HTTP on 127.0.0.1** with `ADMIN_TOKEN`, so it
+  goes through exactly the handlers the phone uses and the refactor stays small; it
+  refreshes every 3 s, so changes made from the phone show up in the window.
 - **Online rule:** a computer is online if its last sync is under 60 s old, the same rule
   as the Android app (`computers_screen.dart`, `_isComputerOnline`).
 - **Application ordering:** disabled first, then alphabetical, as in the Android app.
@@ -114,11 +113,11 @@ of the lesson, it runs the server, and the teacher blocks applications and compu
   NetBIOS via the system resolver); Linux agents usually resolve it through
   systemd-resolved's LLMNR, otherwise they need the IP or a DHCP reservation — README
   documents this.
-- **Timestamp bug fix (server):** `computers.datetime` is SQLite `CURRENT_TIMESTAMP`
-  (UTC, no offset) while `current_time` is local time with an offset, so on a server not
-  set to UTC the phone shows every PC offline. The server returns `datetime` as RFC 3339
-  UTC (`...Z`). Same instant on a UTC Linux server; update `specs/api.md`. The window uses
-  the same corrected values.
+- **Blocking must not fake "online" (server fix):** `PUT /manage/computers` uses
+  `INSERT OR REPLACE`, which resets the row's `datetime` to now, so blocking an offline PC
+  makes it look online for 60 s (in the window and on the phone). It becomes an upsert
+  that only changes `blocked`. (A suspected timezone bug in `datetime` was checked and is
+  not real: SQLite values come back as RFC 3339 UTC with `Z`.)
 - **Packaging:** `scripts/package.sh` cross-compiles it on Linux into
   `server-windows/GuardianServer.exe` in the release archive, with a short `README.txt`
   (first run, admin prompt, what to copy into `agent.env`, no agent on this computer,
