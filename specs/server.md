@@ -6,15 +6,23 @@ The ProcSentinel server is a Go REST API for managing applications, computer sta
 
 ## File Structure
 
-| File            | Purpose                                        |
-|-----------------|-------------------------------------------------|
-| `main.go`       | Server struct, startup, graceful shutdown       |
-| `models.go`     | Request/response structs                        |
-| `db.go`         | Database init, schema, migrations, cache loading, queries |
-| `handlers.go`   | HTTP handler functions                          |
-| `routes.go`     | Chi router setup, middleware wiring             |
-| `middleware.go`  | Auth middleware (constant-time token compare)   |
-| `helpers.go`    | Utilities: JSON writer, env loader, IP detect   |
+The server lives in the importable package `server/guardian`, so the Linux binary and the
+Windows app Guardian Server (`tools/server-gui`) run the same code.
+
+| File                     | Purpose                                        |
+|--------------------------|-------------------------------------------------|
+| `main.go`                | Linux entry point: `.env` loading, `configFromEnv()`, listen address, graceful shutdown |
+| `guardian/server.go`     | `Server` struct, `Config{DBPath, ClientToken, AdminToken}`, `New`, `Handler`, `Close` |
+| `guardian/models.go`     | Request/response structs                        |
+| `guardian/db.go`         | Database init, schema, migrations, cache loading, queries |
+| `guardian/handlers.go`   | HTTP handler functions                          |
+| `guardian/routes.go`     | Chi router setup, middleware wiring             |
+| `guardian/middleware.go` | Auth middleware (constant-time token compare); tokens come from `Config` |
+| `guardian/helpers.go`    | Utilities: JSON writer, `LocalIP()`             |
+| `*_test.go`              | `go test ./...`: auth tiers, fallback tokens, computer updates |
+
+`configFromEnv()` keeps the old behaviour: `./guardian.db`, `TOKEN` / `ADMIN_TOKEN` from the
+environment, falling back to the built-in default token when unset.
 
 ## Core Struct
 
@@ -26,6 +34,8 @@ type Server struct {
     enabledCache bool
     modeCache    string
     clientCache  map[string]bool
+    clientToken  string
+    adminToken   string
 }
 ```
 
@@ -188,7 +198,7 @@ Create or update a client entry. Body: `{"name": "power", "status": false}`.
 Returns all computers with identity, blocked status, last-seen datetime, and current server time.
 
 #### `PUT /manage/computers`
-Update a computer's blocked status. Body: `{"identity": 1, "blocked": true}`. Uses `INSERT OR REPLACE`.
+Update a computer's blocked status. Body: `{"identity": 1, "blocked": true}`. Upsert that changes only `blocked`, so the last-sync `datetime` is kept.
 
 #### `DELETE /manage/computers/reset`
 Unblock all computers (set `blocked = 0`).

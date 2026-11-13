@@ -1,4 +1,4 @@
-package main
+package guardian
 
 // Application represents an application entry
 type Application struct {
@@ -29,7 +29,7 @@ type ApplicationsResponse struct {
 type ClientSyncResponse struct {
 	Applications []ClientApplication `json:"applications"`
 	Mode         string              `json:"mode"`
-	Client       []ClientEntry        `json:"client"`
+	Client       []ClientEntry       `json:"client"`
 }
 
 // ErrorResponse represents an error response

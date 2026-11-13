@@ -4,6 +4,7 @@
 #   dist/guardian-<version>.zip
 #     guardian-<version>/
 #       server/          guardian-server (linux/amd64), server.env, install.sh, systemd unit, Docker files
+#       server-windows/  GuardianServer.exe (windows/386 GUI that runs the server), README.txt
 #       agent-windows/   Guardian.exe, Install/Uninstall .bat, agent.env, bin/ (ps1 + 32/64-bit agent)
 #       agent-linux/     procsentinel-agent (linux/amd64), agent.env, install.sh, uninstall.sh, systemd unit
 #       guardian.apk
@@ -24,7 +25,7 @@ OUT="$ROOT/dist/$NAME"
 
 rm -rf "$OUT" "$ROOT/dist/$NAME.zip"
 mkdir -p "$OUT"
-cp -R "$ROOT/packaging/server" "$ROOT/packaging/agent-windows" "$ROOT/packaging/agent-linux" "$OUT/"
+cp -R "$ROOT/packaging/server" "$ROOT/packaging/server-windows" "$ROOT/packaging/agent-windows" "$ROOT/packaging/agent-linux" "$OUT/"
 
 gobuild() { # <module dir> <GOOS> <GOARCH> <output> [extra ldflags]
   (cd "$ROOT/$1" && CGO_ENABLED=0 GOOS="$2" GOARCH="$3" \
@@ -40,14 +41,21 @@ gobuild agent windows amd64 "$OUT/agent-windows/bin/agent/procsentinel-agent64.e
 gobuild agent windows 386 "$OUT/agent-windows/bin/agent/procsentinel-agent32.exe"
 gobuild agent linux amd64 "$OUT/agent-linux/procsentinel-agent"
 
+# guibuild <module dir> <manifest> <output>: same steps as the tools' build.ps1 —
+# embed manifest + icon, GUI subsystem, 32-bit so one exe runs on any Windows.
+guibuild() {
+  SYSO="$ROOT/$1/rsrc_windows_386.syso"
+  trap 'rm -f "$SYSO"' EXIT
+  (cd "$ROOT/$1" && go run github.com/akavel/rsrc@v0.10.2 -manifest "$2" -ico guardian.ico -arch 386 -o "$SYSO")
+  gobuild "$1" windows 386 "$3" "-H windowsgui"
+  rm -f "$SYSO"
+}
+
 echo "==> Guardian Console (windows/386)"
-# Same steps as tools/whitelist-gui/build.ps1: embed manifest + icon, GUI subsystem.
-GUI="$ROOT/tools/whitelist-gui"
-SYSO="$GUI/rsrc_windows_386.syso"
-trap 'rm -f "$SYSO"' EXIT
-(cd "$GUI" && go run github.com/akavel/rsrc@v0.10.2 -manifest whitelist-gui.manifest -ico guardian.ico -arch 386 -o "$SYSO")
-gobuild tools/whitelist-gui windows 386 "$OUT/agent-windows/Guardian.exe" "-H windowsgui"
-rm -f "$SYSO"
+guibuild tools/whitelist-gui whitelist-gui.manifest "$OUT/agent-windows/Guardian.exe"
+
+echo "==> Guardian Server for Windows (windows/386)"
+guibuild tools/server-gui server-gui.manifest "$OUT/server-windows/GuardianServer.exe"
 
 if [ "${SKIP_APK:-0}" != "1" ]; then
   echo "==> mobile (apk)"
