@@ -1,4 +1,4 @@
-package main
+package guardian
 
 import (
 	"database/sql"
@@ -316,7 +316,7 @@ func (s *Server) handleGetServerInfo(w http.ResponseWriter, r *http.Request) {
 	s.mu.RUnlock()
 
 	writeJSON(w, http.StatusOK, ServerInfoResponse{
-		ServerIP:   getLocalIP(),
+		ServerIP:   LocalIP(),
 		ServerPort: "8080",
 		Version:    "1.0.0",
 		Status:     serverStatus,
