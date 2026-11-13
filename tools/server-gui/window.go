@@ -59,6 +59,12 @@ func (a *app) build() error {
 	a.pcs = &pcModel{}
 	a.currentMode = modes[0]
 
+	// The builder applies CurrentIndex and other properties at the end of
+	// Create, which fires OnCurrentIndexChanged; without this guard every
+	// launch would send SetStatus(false, "blacklist") and switch protection off.
+	a.updating = true
+	defer func() { a.updating = false }()
+
 	err := MainWindow{
 		AssignTo: &a.mw,
 		Title:    appTitle,
@@ -139,6 +145,7 @@ func (a *app) build() error {
 	if err != nil {
 		return err
 	}
+	a.pcs.table = a.pcsTable
 	if icon := appIcon(); icon != nil {
 		a.mw.SetIcon(icon)
 	}
@@ -323,6 +330,18 @@ type appModel struct {
 func (m *appModel) set(rows []guardian.Application) {
 	m.rows = rows
 	m.PublishRowsReset()
+	// A reset with an unchanged row count does not repaint by itself.
+	if m.a.appsTable != nil {
+		m.a.appsTable.Invalidate()
+	}
+}
+
+// ID keeps the selection across the 3 s refresh (walk.IDProvider).
+func (m *appModel) ID(row int) interface{} {
+	if row < 0 || row >= len(m.rows) {
+		return nil
+	}
+	return m.rows[row].Mode + "\x00" + m.rows[row].Name
 }
 
 func (m *appModel) RowCount() int { return len(m.rows) }
@@ -353,13 +372,26 @@ func (m *appModel) SetChecked(row int, checked bool) error {
 // pcModel backs the Computers table.
 type pcModel struct {
 	walk.TableModelBase
-	rows []guardian.Computer
-	now  time.Time
+	table *walk.TableView
+	rows  []guardian.Computer
+	now   time.Time
 }
 
 func (m *pcModel) set(rows []guardian.Computer, now time.Time) {
 	m.rows, m.now = rows, now
 	m.PublishRowsReset()
+	// A reset with an unchanged row count does not repaint by itself.
+	if m.table != nil {
+		m.table.Invalidate()
+	}
+}
+
+// ID keeps the selection across the 3 s refresh (walk.IDProvider).
+func (m *pcModel) ID(row int) interface{} {
+	if row < 0 || row >= len(m.rows) {
+		return nil
+	}
+	return m.rows[row].Identity
 }
 
 func (m *pcModel) RowCount() int { return len(m.rows) }

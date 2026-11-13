@@ -19,12 +19,12 @@ func copyRow(label string, edit **walk.LineEdit, value string, password bool) []
 func (a *app) showConnect() {
 	ci := core.NewConnectInfo(a.hostname, a.ip, a.settings)
 	var dlg *walk.Dialog
-	var agentLine, token, byName, byIP, admin *walk.LineEdit
+	var agentLine, tokenLine, byName, byIP, admin *walk.LineEdit
 	var closeBtn *walk.PushButton
 
 	rows := []Widget{}
 	rows = append(rows, copyRow("agent.env line:", &agentLine, ci.AgentLine, false)...)
-	rows = append(rows, copyRow("Agent TOKEN:", &token, ci.Token, false)...)
+	rows = append(rows, copyRow("agent.env line:", &tokenLine, ci.TokenLine, false)...)
 	rows = append(rows, copyRow("Phone address:", &byName, ci.PhoneByName, false)...)
 	rows = append(rows, copyRow("Phone address (IP):", &byIP, ci.PhoneByIP, false)...)
 	rows = append(rows, copyRow("Phone ADMIN_TOKEN:", &admin, ci.AdminToken, true)...)

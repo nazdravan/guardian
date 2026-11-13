@@ -92,8 +92,8 @@ func NoAgentWarning(startedAt time.Time, cs []guardian.Computer, now time.Time) 
 
 // ConnectInfo is what the Connect window offers for copying.
 type ConnectInfo struct {
-	AgentLine   string // line for agent.env
-	Token       string // agents' TOKEN
+	AgentLine   string // SERVER_ADDRESS line for agent.env
+	TokenLine   string // TOKEN line for agent.env
 	PhoneByName string
 	PhoneByIP   string // fallback: Android usually cannot resolve Windows names
 	AdminToken  string
@@ -104,7 +104,7 @@ func NewConnectInfo(hostname, ip string, s Settings) ConnectInfo {
 	byName := fmt.Sprintf("http://%s:%d", hostname, s.Port)
 	return ConnectInfo{
 		AgentLine:   "SERVER_ADDRESS=" + byName,
-		Token:       s.Token,
+		TokenLine:   "TOKEN=" + s.Token,
 		PhoneByName: byName,
 		PhoneByIP:   fmt.Sprintf("http://%s:%d", ip, s.Port),
 		AdminToken:  s.AdminToken,

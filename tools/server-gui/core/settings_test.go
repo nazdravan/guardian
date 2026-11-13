@@ -66,3 +66,19 @@ func TestLoadOrCreateRejectsBadPort(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadOrCreateKeepsValuesAfterBOMAndQuotes(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, ".env"), []byte("\ufeffPORT=9090\r\nTOKEN=\"quoted-tok\"\r\nADMIN_TOKEN='adm'\r\n"), 0o600)
+	s, err := LoadOrCreate(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Port != 9090 || s.Token != "quoted-tok" || s.AdminToken != "adm" {
+		t.Errorf("Settings = %+v, want port 9090, quotes stripped", s)
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, ".env"))
+	if strings.Count(string(b), "PORT=") != 1 {
+		t.Errorf("PORT duplicated:\n%s", b)
+	}
+}

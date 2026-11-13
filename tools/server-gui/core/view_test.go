@@ -89,7 +89,7 @@ func TestNewConnectInfo(t *testing.T) {
 	ci := NewConnectInfo("PROFESOR-PC", "192.168.1.37", Settings{Port: 8080, Token: "tok", AdminToken: "adm"})
 	want := ConnectInfo{
 		AgentLine:   "SERVER_ADDRESS=http://PROFESOR-PC:8080",
-		Token:       "tok",
+		TokenLine:   "TOKEN=tok",
 		PhoneByName: "http://PROFESOR-PC:8080",
 		PhoneByIP:   "http://192.168.1.37:8080",
 		AdminToken:  "adm",

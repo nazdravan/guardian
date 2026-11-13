@@ -49,7 +49,9 @@ func LoadOrCreate(dir string) (Settings, error) {
 
 	var lines []string
 	if b, err := os.ReadFile(path); err == nil {
-		lines = strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n")
+		// Notepad may save "UTF-8 with BOM"; the BOM would hide the first key.
+		text := strings.TrimPrefix(string(b), "\ufeff")
+		lines = strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
 		if len(lines) > 0 && lines[len(lines)-1] == "" {
 			lines = lines[:len(lines)-1]
 		}
@@ -66,7 +68,7 @@ func LoadOrCreate(dir string) (Settings, error) {
 		}
 		if k, v, ok := strings.Cut(t, "="); ok {
 			k = strings.TrimSpace(k)
-			values[k] = strings.TrimSpace(v)
+			values[k] = unquote(strings.TrimSpace(v))
 			index[k] = i
 		}
 	}
@@ -99,4 +101,12 @@ func LoadOrCreate(dir string) (Settings, error) {
 		}
 	}
 	return Settings{Port: port, Token: values["TOKEN"], AdminToken: values["ADMIN_TOKEN"]}, nil
+}
+
+// unquote strips one pair of matching quotes, like the Linux server's .env loader.
+func unquote(v string) string {
+	if len(v) >= 2 && (v[0] == '"' || v[0] == '\'') && v[len(v)-1] == v[0] {
+		return v[1 : len(v)-1]
+	}
+	return v
 }
