@@ -46,6 +46,9 @@ guardian-<version>/
 │   ├── guardian-server.service
 │   ├── Dockerfile
 │   └── docker-compose.yml
+├── server-windows/                  # Server on the teacher's Windows PC
+│   ├── GuardianServer.exe           # GUI: runs the server while open, manage the class
+│   └── README.txt
 ├── agent-windows/
 │   ├── Guardian.exe                 # Guardian Console: install, diagnose, edit whitelist
 │   ├── agent.env                    # Agent config template
@@ -83,6 +86,15 @@ Run it one of three ways:
 sudo ./install.sh        # Option B — install as a systemd service
 docker compose up -d     # Option C — Docker (env is optional; pass vars via compose)
 ```
+
+### Server (Windows, on the teacher's PC)
+
+Double-click `server-windows/GuardianServer.exe` and accept the administrator prompt. It
+generates the tokens, opens port 8080 in Windows Firewall for the local network, and runs
+the server while its window is open. Block apps and computers in the window; **Connect…**
+shows the `SERVER_ADDRESS=http://<PC-NAME>:8080` line and `TOKEN` for `agent.env`, and the
+phone's address and `ADMIN_TOKEN`. When the window is closed, agents keep the last rules.
+Do not install an agent on the teacher's PC.
 
 ### 2. Agent (Windows)
 

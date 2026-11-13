@@ -4,8 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-ProcSentinel is a process monitoring and control system with three components:
-- **Server** (Go) — REST API backend using SQLite, runs as a Linux systemd service
+ProcSentinel is a process monitoring and control system with these components:
+- **Server** (Go) — REST API backend using SQLite, runs as a Linux systemd service; the code is the importable package `server/guardian`
+- **Guardian Server for Windows** (Go + lxn/walk) — `tools/server-gui/`: a GUI the teacher opens on their own PC; it runs the server in-process while the window is open and manages apps and computers from one screen. See `specs/2026-11-13-windows-server-gui-design.md`
 - **Agent** (Go) — Client-side process monitor/killer, runs as a Windows service (also supports Linux/macOS)
 - **Mobile** (Flutter/Dart) — Android management app called "Guardian"
 - **Guardian Console** (Go + lxn/walk) — Windows GUI in `tools/whitelist-gui/` for installing, diagnosing and updating the agent, and editing its local `whitelist.txt`
@@ -52,14 +53,21 @@ cd mobile && flutter pub run flutter_launcher_icons
 
 ## Architecture
 
-### Server (`server/` — multi-file Go package, ~1000 lines total)
-- `main.go` — Server struct, startup, graceful shutdown
-- `routes.go` — chi router setup with CORS, route groups (unauthenticated, client auth, admin auth)
-- `handlers.go` — all HTTP handler methods
-- `db.go` — SQLite database init, migrations, CRUD operations, cache loading
-- `models.go` — request/response structs (Application, Computer, ClientEntry, etc.)
-- `middleware.go` — Bearer token auth middleware (ClientAuth, AdminAuth)
-- `helpers.go` — utility functions (JSON writing, env file loading, IP detection)
+### Server (`server/` — `main.go` + package `server/guardian`, ~1000 lines total)
+- `main.go` — Linux entry point: `.env` loading, `configFromEnv()`, listen address, graceful shutdown
+- `guardian/server.go` — `Server` struct, `Config`, `New`, `Handler`, `Close`
+- `guardian/routes.go` — chi router setup with CORS, route groups (unauthenticated, client auth, admin auth)
+- `guardian/handlers.go` — all HTTP handler methods
+- `guardian/db.go` — SQLite database init, migrations, CRUD operations, cache loading
+- `guardian/models.go` — request/response structs (Application, Computer, ClientEntry, etc.)
+- `guardian/middleware.go` — Bearer token auth middleware; tokens come from `Config`
+- `guardian/helpers.go` — utility functions (JSON writing, `LocalIP()`)
+- Tests: `cd server && go test ./...`
+
+### Guardian Server for Windows (`tools/server-gui/`, own module, imports `server` via `replace`)
+- `core/` — OS-independent, tested anywhere (`go test ./core`): `settings.go` (`%ProgramData%\Guardian Server\.env`, generated tokens), `runner.go` (starts/stops the embedded server, "port in use"), `client.go` (HTTP client on 127.0.0.1 with ADMIN_TOKEN), `view.go` (online rule, sorting, no-agent warning, Connect texts), `firewall.go` (netsh args)
+- `main.go`, `window.go`, `connect.go`, `platform.go` — Windows only (walk, firewall rule, single-instance mutex)
+- Build: `./tools/server-gui/build.ps1` → `dist/server-windows/GuardianServer.exe` (32-bit); tests: `./tools/server-gui/test.ps1`
 - `Server` struct holds DB connection and in-memory caches (`appsCache`, `enabledCache`, `modeCache`, `clientCache`) with a `sync.RWMutex`
 - Uses `go-chi/chi` router and `modernc.org/sqlite` (pure Go, no CGO required)
 - Two auth tiers via Bearer tokens: `TOKEN` (client/agent endpoints) and `ADMIN_TOKEN` (management endpoints)
@@ -111,6 +119,7 @@ in `packaging/`; `scripts/package.sh` copies them next to the freshly built bina
 guardian-<VERSION>.zip
 └── guardian-<VERSION>/
     ├── server/          # guardian-server (linux/amd64), server.env, install.sh, systemd unit, Docker files
+    ├── server-windows/  # GuardianServer.exe (GUI that runs the server on the teacher's PC), README.txt
     ├── agent-windows/   # Guardian.exe (console), Install/Uninstall .bat, agent.env,
     │                    # bin/ (Install/Uninstall-Agent32/64.ps1, agent/procsentinel-agent32/64.exe)
     ├── agent-linux/     # procsentinel-agent (linux/amd64), agent.env, install.sh, uninstall.sh,
@@ -131,7 +140,7 @@ only on first install, so an upgrade keeps the configured tokens. Agent and serv
 
 ## Notes
 
-- The only automated tests are for Guardian Console (`tools/whitelist-gui`); the server, agent and mobile app have none
+- Automated tests exist for the server (`server/`), Guardian Server for Windows (`tools/server-gui/core`) and Guardian Console (`tools/whitelist-gui`); the agent and mobile app have none
 - `tools/whitelist-gui/builtin.go` mirrors the hardcoded protected-process list in `agent/main.go` and must be kept in sync by hand
 - `tools/mkico` is a separate module (it needs `golang.org/x/image` only to build the console's icon)
 - Server and agent have separate `go.mod` files (modules `server` and `agent`)

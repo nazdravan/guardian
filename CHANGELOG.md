@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Guardian Server for Windows (new)
+- `GuardianServer.exe`: the teacher runs the server on their own Windows PC; it runs while the window is open
+- One screen: protection on/off, blacklist/whitelist mode, applications, computers (online/blocked/offline), block or unblock all
+- Generates `TOKEN` and `ADMIN_TOKEN` on first run, opens its port in Windows Firewall for the local network, and shows what to copy into `agent.env` and the phone
+- Warns when no agent has connected for 2 minutes
+- Ships in `server-windows/` of the release archive
+
+### Server
+- The server is now the importable package `server/guardian`; the Linux binary behaves as before
+- Blocking or unblocking a computer no longer resets its last sync time, so an offline PC no longer shows as online for a minute
+- First automated tests (`cd server && go test ./...`)
+
 ### Guardian Console (new)
 - Windows GUI (`tools/whitelist-gui`) for managing the agent on a single machine
 - Install / Update agent / Uninstall, plus start, stop and restart of the ProcSentinelAgent service
