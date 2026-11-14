@@ -65,8 +65,8 @@ cd mobile && flutter pub run flutter_launcher_icons
 - Tests: `cd server && go test ./...`
 
 ### Guardian Server for Windows (`tools/server-gui/`, own module, imports `server` via `replace`)
-- `core/` — OS-independent, tested anywhere (`go test ./core`): `settings.go` (`%ProgramData%\Guardian Server\.env`, generated tokens), `runner.go` (starts/stops the embedded server, "port in use"), `client.go` (HTTP client on 127.0.0.1 with ADMIN_TOKEN), `view.go` (online rule, sorting, no-agent warning, Connect texts), `firewall.go` (netsh args)
-- `main.go`, `window.go`, `connect.go`, `platform.go` — Windows only (walk, firewall rule, single-instance mutex)
+- `core/` — OS-independent, tested anywhere (`go test ./core`): `settings.go` (`%ProgramData%\Guardian Server\.env`, generated tokens), `runner.go` (starts/stops the embedded server, "port in use"), `client.go` (HTTP client on 127.0.0.1 with ADMIN_TOKEN), `view.go` (online rule, sorting, current-mode filter, no-agent warning, Connection info texts), `firewall.go` (netsh args)
+- `main.go`, `window.go`, `connect.go`, `platform.go` — Windows only (walk, firewall rule, single-instance mutex); the window layout is described under "Window as built" in the design spec
 - Build: `./tools/server-gui/build.ps1` → `dist/server-windows/GuardianServer.exe` (32-bit); tests: `./tools/server-gui/test.ps1`
 - `Server` struct holds DB connection and in-memory caches (`appsCache`, `enabledCache`, `modeCache`, `clientCache`) with a `sync.RWMutex`
 - Uses `go-chi/chi` router and `modernc.org/sqlite` (pure Go, no CGO required)

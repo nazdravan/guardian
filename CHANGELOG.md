@@ -6,7 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Guardian Server for Windows (new)
 - `GuardianServer.exe`: the teacher runs the server on their own Windows PC; it runs while the window is open
-- One screen: protection on/off, blacklist/whitelist mode, applications, computers (online/blocked/offline), block or unblock all
+- One screen: a coloured state card with a Turn protection on/off button, the rule in plain words (block the listed apps / allow only the listed apps), the current mode's applications, computers (connection, last seen, blocked/free), block or unblock all
+- Buttons act on the selection only and name their action ("Unblock PC 7"); empty lists explain the next step; warnings appear in a banner with the fix next to them
 - Generates `TOKEN` and `ADMIN_TOKEN` on first run, opens its port in Windows Firewall for the local network, and shows what to copy into `agent.env` and the phone
 - Warns when no agent has connected for 2 minutes
 - Ships in `server-windows/` of the release archive

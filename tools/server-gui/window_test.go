@@ -39,6 +39,10 @@ func TestBuildWindow(t *testing.T) {
 		t.Fatalf("status after build = %+v, %v; want enabled whitelist", st, err)
 	}
 
+	// Only the current mode's list is shown: the blacklist entry stays hidden.
+	if err := a.client.AddApp("winword.exe", "whitelist"); err != nil {
+		t.Fatal(err)
+	}
 	if err := a.client.AddApp("chrome.exe", "blacklist"); err != nil {
 		t.Fatal(err)
 	}
@@ -58,11 +62,26 @@ func TestBuildWindow(t *testing.T) {
 	if got := a.pcs.Value(0, 0); got != "PC 7" {
 		t.Errorf("computer label = %v, want PC 7", got)
 	}
+	if got := a.apps.Value(0, 0); got != "winword.exe" {
+		t.Errorf("application = %v, want winword.exe", got)
+	}
+	if got := a.cardTitle.Text(); got != "Protection is on" {
+		t.Errorf("state card = %q, want Protection is on", got)
+	}
+	a.pcsTable.SetCurrentIndex(-1)
+	a.updateButtons()
+	if a.pcBtn.Enabled() {
+		t.Error("PC button enabled with nothing selected")
+	}
 
 	// The selection survives a refresh.
 	a.pcsTable.SetCurrentIndex(0)
 	a.apply(a.fetch())
 	if a.pcsTable.CurrentIndex() != 0 {
 		t.Errorf("selection after refresh = %d, want 0", a.pcsTable.CurrentIndex())
+	}
+	// A new computer starts blocked, so the button offers to unblock it.
+	if got := a.pcBtn.Text(); !a.pcBtn.Enabled() || got != "Unblock PC 7" {
+		t.Errorf("PC button = %q (enabled %v), want Unblock PC 7", got, a.pcBtn.Enabled())
 	}
 }

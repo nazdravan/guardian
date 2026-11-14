@@ -10,7 +10,7 @@ First run
 1. Double-click GuardianServer.exe and accept the administrator prompt.
    It opens port 8080 in Windows Firewall (local network only) and creates
    C:\ProgramData\Guardian Server\ with the database and .env (tokens).
-2. Click "Connect..." and copy into each student computer's agent.env:
+2. Click "Connection info..." (above the Computers list) and copy into each student computer's agent.env:
        SERVER_ADDRESS=http://<THIS-COMPUTER-NAME>:8080
        TOKEN=<the agent TOKEN shown>
 3. In the Android app (optional), use the phone address and ADMIN_TOKEN shown.

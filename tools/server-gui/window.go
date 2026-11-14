@@ -14,7 +14,25 @@ import (
 const refreshEvery = 3 * time.Second
 
 var modes = []string{"blacklist", "whitelist"}
-var modeLabels = []string{"Blacklist", "Whitelist"}
+
+// modeLabels say what each mode does instead of naming it.
+var modeLabels = []string{"Block the listed apps", "Allow only the listed apps"}
+
+// Palette: soft backgrounds with a dark text of the same hue, so the state
+// card and the banner read at a glance but stay calm.
+var (
+	greenBg  = walk.RGB(0xe6, 0xf4, 0xea)
+	greenFg  = walk.RGB(0x13, 0x73, 0x33)
+	amberBg  = walk.RGB(0xfe, 0xf3, 0xd6)
+	amberFg  = walk.RGB(0x7a, 0x4a, 0x00)
+	redBg    = walk.RGB(0xfc, 0xe8, 0xe6)
+	redFg    = walk.RGB(0xa5, 0x0e, 0x0e)
+	grayBg   = walk.RGB(0xe8, 0xea, 0xed)
+	windowBg = walk.RGB(0xf0, 0xf0, 0xf0)
+	grayFg   = walk.RGB(0x70, 0x75, 0x7a)
+	uiFont   = Font{Family: "Segoe UI", PointSize: 9}
+	headFont = Font{Family: "Segoe UI", PointSize: 13, Bold: true}
+)
 
 type app struct {
 	mw *walk.MainWindow
@@ -28,18 +46,43 @@ type app struct {
 	startErr    string
 	firewallErr string
 
-	stateLabel  *walk.Label
-	syncLabel   *walk.Label
-	statusLine  *walk.Label
-	pcHeader    *walk.Label
-	protection  *walk.CheckBox
-	modeCombo   *walk.ComboBox
-	appsTable   *walk.TableView
-	pcsTable    *walk.TableView
+	// State card
+	card       *walk.Composite
+	cardTitle  *walk.Label
+	cardText   *walk.Label
+	protectBtn *walk.PushButton
+	cardBg     walk.Color
+	cardBgSet  bool
+
+	modeCombo *walk.ComboBox
+	classBtns []*walk.PushButton
+
+	// Warning banner
+	banner        *walk.Composite
+	bannerText    *walk.Label
+	bannerConnect *walk.PushButton
+
+	appsBox   *walk.GroupBox
+	appsHint  *walk.Label
+	appsTable *walk.TableView
+	removeBtn *walk.PushButton
+	addBtn    *walk.PushButton
+
+	pcsBox   *walk.GroupBox
+	pcsHint  *walk.Label
+	pcsTable *walk.TableView
+	pcBtn    *walk.PushButton
+
+	sbServer *walk.StatusBarItem
+	sbSync   *walk.StatusBarItem
+
 	apps        *appModel
 	pcs         *pcModel
 	updating    bool // true while apply() sets widgets, so their events are ignored
+	enabled     bool
 	currentMode string
+	readErr     string
+	noAgent     bool
 	stopped     bool
 }
 
@@ -65,106 +108,195 @@ func (a *app) build() error {
 	a.updating = true
 	defer func() { a.updating = false }()
 
+	var blockAll, unblockAll *walk.PushButton
+
 	err := MainWindow{
 		AssignTo: &a.mw,
 		Title:    appTitle,
-		MinSize:  Size{Width: 820, Height: 520},
-		Size:     Size{Width: 960, Height: 620},
-		Layout:   VBox{},
+		Font:     uiFont,
+		// An explicit background, even the default grey, is what makes walk
+		// honour a Label's TextColor: without one the system colour wins.
+		Background: SolidColorBrush{Color: windowBg},
+		MinSize:    Size{Width: 860, Height: 560},
+		Size:       Size{Width: 1000, Height: 680},
+		Layout:     VBox{Margins: Margins{Left: 12, Top: 12, Right: 12, Bottom: 8}, Spacing: 10},
 		Children: []Widget{
+			// 1. State card: is the class protected right now?
 			Composite{
-				Layout: HBox{MarginsZero: true},
+				AssignTo: &a.card,
+				Layout:   HBox{Margins: Margins{Left: 16, Top: 12, Right: 16, Bottom: 12}, Spacing: 12},
 				Children: []Widget{
-					Label{AssignTo: &a.stateLabel, Font: Font{Bold: true}},
-					HSpacer{Size: 12},
-					CheckBox{AssignTo: &a.protection, Text: "Protection on", OnCheckedChanged: a.onStatusChanged},
-					Label{Text: "Mode:"},
-					ComboBox{AssignTo: &a.modeCombo, Model: modeLabels, CurrentIndex: 0, OnCurrentIndexChanged: a.onStatusChanged},
+					Composite{
+						Layout: VBox{MarginsZero: true, Spacing: 2},
+						Children: []Widget{
+							Label{AssignTo: &a.cardTitle, Font: headFont},
+							Label{AssignTo: &a.cardText},
+						},
+					},
 					HSpacer{},
-					PushButton{Text: "Block all PCs", OnClicked: func() { a.act(a.client.BlockAll) }},
-					PushButton{Text: "Unblock all", OnClicked: func() { a.act(a.client.UnblockAll) }},
-					PushButton{Text: "Connect…", OnClicked: a.showConnect},
+					PushButton{
+						AssignTo:    &a.protectBtn,
+						MinSize:     Size{Width: 170, Height: 34},
+						OnClicked:   func() { a.setStatus(!a.enabled, a.currentMode) },
+						ToolTipText: "Switches the rules on or off for every computer. The lists are kept.",
+					},
 				},
 			},
-			Label{AssignTo: &a.syncLabel},
-			HSplitter{
+			// 2. Class controls
+			Composite{
+				Layout: HBox{MarginsZero: true, Spacing: 8},
 				Children: []Widget{
-					Composite{
-						Layout: VBox{MarginsZero: true},
+					Label{Text: "Rule:"},
+					ComboBox{
+						AssignTo:              &a.modeCombo,
+						Model:                 modeLabels,
+						CurrentIndex:          0,
+						MinSize:               Size{Width: 190},
+						OnCurrentIndexChanged: a.onModeChanged,
+						ToolTipText:           "Block: the listed apps are closed.\nAllow only: everything except the listed apps (and Windows itself) is closed.",
+					},
+					HSpacer{},
+					Label{Text: "All computers:", TextColor: grayFg},
+					PushButton{AssignTo: &blockAll, Text: "Block all", OnClicked: func() { a.act(a.client.BlockAll) },
+						ToolTipText: "Apply the rules to every computer"},
+					PushButton{AssignTo: &unblockAll, Text: "Unblock all", OnClicked: func() { a.act(a.client.UnblockAll) },
+						ToolTipText: "Let every computer run anything"},
+				},
+			},
+			// 3. Warning banner, hidden unless something needs the teacher.
+			Composite{
+				AssignTo: &a.banner,
+				Visible:  false,
+				Layout:   HBox{Margins: Margins{Left: 12, Top: 8, Right: 8, Bottom: 8}, Spacing: 8},
+				Children: []Widget{
+					Label{AssignTo: &a.bannerText, TextColor: amberFg},
+					HSpacer{},
+					PushButton{AssignTo: &a.bannerConnect, Text: "Connection info…", OnClicked: a.showConnect},
+				},
+			},
+			// 4. The two lists
+			HSplitter{
+				HandleWidth: 10,
+				Children: []Widget{
+					GroupBox{
+						AssignTo: &a.appsBox,
+						Title:    "Applications",
+						Layout:   VBox{Margins: Margins{Left: 10, Top: 8, Right: 10, Bottom: 10}, Spacing: 8},
 						Children: []Widget{
 							Composite{
-								Layout: HBox{MarginsZero: true},
+								Layout: HBox{MarginsZero: true, Spacing: 8},
 								Children: []Widget{
-									Label{Text: "Applications", Font: Font{Bold: true}},
+									PushButton{AssignTo: &a.addBtn, Text: "+ Add application…", OnClicked: a.addApp},
+									PushButton{AssignTo: &a.removeBtn, Text: "Remove", Enabled: false, OnClicked: a.removeApp,
+										ToolTipText: "Remove the selected application (Delete)"},
 									HSpacer{},
-									PushButton{Text: "+ Add", OnClicked: a.addApp},
-									PushButton{Text: "Remove", OnClicked: a.removeApp},
 								},
 							},
+							Label{AssignTo: &a.appsHint, TextColor: grayFg, Visible: false},
 							TableView{
-								AssignTo:   &a.appsTable,
-								Model:      a.apps,
-								CheckBoxes: true,
+								AssignTo:              &a.appsTable,
+								Model:                 a.apps,
+								CheckBoxes:            true,
+								LastColumnStretched:   true,
+								OnCurrentIndexChanged: a.updateButtons,
+								OnKeyDown: func(key walk.Key) {
+									if key == walk.KeyDelete {
+										a.removeApp()
+									}
+								},
+								StyleCell:   a.styleApp,
+								ToolTipText: "Untick an application to pause its rule without removing it.",
 								Columns: []TableViewColumn{
-									{Title: "Application", Width: 260},
-									{Title: "Mode", Width: 100},
+									{Title: "Application", Width: 240},
+									{Title: "Rule"},
 								},
 							},
 						},
 					},
-					Composite{
-						Layout: VBox{MarginsZero: true},
+					GroupBox{
+						AssignTo: &a.pcsBox,
+						Title:    "Computers",
+						Layout:   VBox{Margins: Margins{Left: 10, Top: 8, Right: 10, Bottom: 10}, Spacing: 8},
 						Children: []Widget{
 							Composite{
-								Layout: HBox{MarginsZero: true},
+								Layout: HBox{MarginsZero: true, Spacing: 8},
 								Children: []Widget{
-									Label{Text: "Computers", Font: Font{Bold: true}},
-									Label{AssignTo: &a.pcHeader},
+									PushButton{AssignTo: &a.pcBtn, Text: "Block", Enabled: false, MinSize: Size{Width: 110},
+										OnClicked: a.togglePC, ToolTipText: "Block or unblock the selected computer (or double-click it)"},
 									HSpacer{},
-									PushButton{Text: "Block", OnClicked: func() { a.setSelectedBlocked(true) }},
-									PushButton{Text: "Unblock", OnClicked: func() { a.setSelectedBlocked(false) }},
+									// Here rather than in the top row: it is how computers get into this list.
+									PushButton{Text: "Connection info…", OnClicked: a.showConnect,
+										ToolTipText: "What to put in each student computer's agent.env, and the phone's address"},
 								},
 							},
+							Label{AssignTo: &a.pcsHint, TextColor: grayFg, Visible: false},
 							TableView{
-								AssignTo:        &a.pcsTable,
-								Model:           a.pcs,
-								OnItemActivated: a.togglePC,
-								MultiSelection:  false,
+								AssignTo:              &a.pcsTable,
+								Model:                 a.pcs,
+								OnItemActivated:       a.togglePC,
+								OnCurrentIndexChanged: a.updateButtons,
+								MultiSelection:        false,
+								LastColumnStretched:   true,
+								StyleCell:             a.stylePC,
 								Columns: []TableViewColumn{
-									{Title: "Computer", Width: 140},
-									{Title: "State", Width: 140},
+									{Title: "Computer", Width: 90},
+									{Title: "Connection", Width: 170},
+									{Title: "Rules"},
 								},
 							},
 						},
 					},
 				},
 			},
-			Label{AssignTo: &a.statusLine},
+		},
+		StatusBarItems: []StatusBarItem{
+			{AssignTo: &a.sbServer, Width: 420},
+			{AssignTo: &a.sbSync, Width: 260},
 		},
 	}.Create()
 	if err != nil {
 		return err
 	}
+	a.classBtns = []*walk.PushButton{blockAll, unblockAll}
 	a.pcs.table = a.pcsTable
 	if icon := appIcon(); icon != nil {
 		a.mw.SetIcon(icon)
 	}
 	a.mw.Closing().Attach(func(canceled *bool, reason walk.CloseReason) { a.stop() })
+	if b, err := walk.NewSolidColorBrush(amberBg); err == nil {
+		a.banner.SetBackground(b)
+	}
 
 	if !a.running() {
-		a.stateLabel.SetText("● Server stopped: " + a.startErr)
-		a.stateLabel.SetTextColor(walk.RGB(0xa4, 0x26, 0x2c))
-		for _, w := range []walk.Widget{a.protection, a.modeCombo, a.appsTable, a.pcsTable} {
+		a.setCard(redBg, redFg, "Server is not running", a.startErr)
+		a.protectBtn.SetVisible(false)
+		for _, w := range []walk.Widget{a.modeCombo, a.appsTable, a.pcsTable, a.addBtn, a.classBtns[0], a.classBtns[1]} {
 			w.SetEnabled(false)
 		}
+		a.sbServer.SetText("Server stopped")
 	} else {
-		a.stateLabel.SetText(fmt.Sprintf("● Server running on port %d", a.runner.Port()))
-		a.stateLabel.SetTextColor(walk.RGB(0x10, 0x7c, 0x10))
+		a.setCard(grayBg, grayFg, "Starting…", "")
+		a.sbServer.SetText(fmt.Sprintf("Server running on port %d  ·  http://%s:%d", a.runner.Port(), a.hostname, a.runner.Port()))
 	}
-	if a.firewallErr != "" {
-		a.statusLine.SetText("⚠ " + a.firewallErr)
-	}
+	a.showBanner()
+	a.showLists(nil, nil, time.Time{})
 	return nil
+}
+
+func (a *app) setCard(bg, fg walk.Color, title, text string) {
+	// Only when the colour changes, and always with a new brush: walk disposes
+	// a brush as soon as it is detached from its last window, so setting the
+	// same brush again on every refresh would leave the card with a dead one.
+	if !a.cardBgSet || bg != a.cardBg {
+		if b, err := walk.NewSolidColorBrush(bg); err == nil {
+			a.card.SetBackground(b)
+			a.cardBg, a.cardBgSet = bg, true
+		}
+	}
+	a.cardTitle.SetTextColor(fg)
+	a.cardTitle.SetText(title)
+	a.cardText.SetText(text)
+	a.cardText.SetVisible(text != "")
 }
 
 // stop shuts the embedded server down; safe to call more than once.
@@ -206,36 +338,151 @@ func (a *app) fetch() snapshot {
 // apply shows a snapshot; it runs on the UI thread.
 func (a *app) apply(s snapshot) {
 	if s.err != nil {
-		a.statusLine.SetText("Could not read from the server: " + s.err.Error())
+		a.readErr = "Could not read from the server: " + s.err.Error()
+		a.showBanner()
 		return
 	}
-	if a.firewallErr == "" {
-		a.statusLine.SetText("")
-	}
+	a.readErr = ""
 
 	a.updating = true
-	a.protection.SetChecked(s.status.Enabled)
+	a.enabled = s.status.Enabled
 	for i, m := range modes {
 		if m == s.status.Mode {
 			a.modeCombo.SetCurrentIndex(i)
 			a.currentMode = m
 		}
 	}
-	core.SortApps(s.apps)
-	a.apps.set(s.apps)
+	apps := core.AppsForMode(s.apps, a.currentMode)
+	core.SortApps(apps)
+	a.apps.set(apps)
 	a.updating = false
 
 	a.pcs.set(s.pcs, s.now)
-	a.pcHeader.SetText(core.OnlineSummary(s.pcs, s.now))
+	a.showCard(apps, s.pcs)
+	a.showLists(apps, s.pcs, s.now)
 
 	switch last, ok := core.LastSync(s.pcs); {
-	case core.NoAgentWarning(a.runner.StartedAt(), s.pcs, s.now):
-		a.syncLabel.SetText(fmt.Sprintf("⚠ No agent has connected for 2 minutes. Agents may not find %s — try the IP address under Connect…", a.hostname))
 	case ok:
-		a.syncLabel.SetText("Last agent sync: " + agoText(s.now.Sub(last)))
+		a.sbSync.SetText("Last agent sync: " + agoText(s.now.Sub(last)))
 	default:
-		a.syncLabel.SetText("Waiting for the first agent…")
+		a.sbSync.SetText("Waiting for the first agent…")
 	}
+	a.noAgent = core.NoAgentWarning(a.runner.StartedAt(), s.pcs, s.now)
+	a.showBanner()
+	a.updateButtons()
+}
+
+// showCard explains in one sentence what the agents are doing right now.
+func (a *app) showCard(apps []guardian.Application, pcs []guardian.Computer) {
+	n := core.CountEnabled(apps)
+	blocked := 0
+	for _, c := range pcs {
+		if c.Blocked {
+			blocked++
+		}
+	}
+	on := fmt.Sprintf("%d of %d computers follow the rules.", blocked, len(pcs))
+	if len(pcs) == 0 {
+		on = "No student computer has connected yet."
+	}
+	if !a.enabled {
+		a.setCard(amberBg, amberFg, "Protection is off",
+			"Students can run any program. The lists and blocks are kept for when you turn it back on.")
+		a.protectBtn.SetText("Turn protection on")
+		return
+	}
+	var what string
+	switch {
+	case a.currentMode == "whitelist":
+		what = fmt.Sprintf("Only %s may run on blocked computers.", plural(n, "application"))
+	case n == 0:
+		what = "No application is blocked yet: add one below."
+	default:
+		what = fmt.Sprintf("%s closed on blocked computers.", capitalize(plural(n, "application")+pluralVerb(n)))
+	}
+	a.setCard(greenBg, greenFg, "Protection is on", what+"  "+on)
+	a.protectBtn.SetText("Turn protection off")
+}
+
+// showLists sets the group titles and swaps an empty table for a hint.
+func (a *app) showLists(apps []guardian.Application, pcs []guardian.Computer, now time.Time) {
+	title, hint := "Blocked applications", "No blocked applications yet.\nClick “+ Add application…” and type a process name, for example chrome.exe."
+	if a.currentMode == "whitelist" {
+		title, hint = "Allowed applications", "No allowed applications yet.\nWith protection on, blocked computers can run only Windows itself.\nClick “+ Add application…” to allow one, for example winword.exe."
+	}
+	if !a.running() {
+		hint = "The server is not running."
+	}
+	a.appsBox.SetTitle(fmt.Sprintf("%s  (%d)", title, len(apps)))
+	a.appsHint.SetText(hint)
+	// The tables stay visible even when empty: they are what takes the
+	// window's spare height, and their headers show what will appear there.
+	a.appsHint.SetVisible(len(apps) == 0)
+
+	a.pcsBox.SetTitle("Computers  (" + core.OnlineSummary(pcs, now) + ")")
+	a.pcsHint.SetText("No student computer has connected yet.\nClick “Connection info…” to see the two lines to put in each computer's agent.env.")
+	if !a.running() {
+		a.pcsHint.SetText("The server is not running.")
+	}
+	a.pcsHint.SetVisible(len(pcs) == 0)
+}
+
+// showBanner shows the most important warning, if any.
+func (a *app) showBanner() {
+	text, connect := "", false
+	switch {
+	case a.firewallErr != "":
+		text = "⚠  " + a.firewallErr
+	case a.readErr != "":
+		text = "⚠  " + a.readErr
+	case a.noAgent:
+		text = fmt.Sprintf("⚠  No student computer has connected for 2 minutes. They may not find “%s” by name — try the IP address under Connection info.", a.hostname)
+		connect = true
+	}
+	a.bannerText.SetText(text)
+	a.bannerConnect.SetVisible(connect)
+	a.banner.SetVisible(text != "")
+}
+
+// updateButtons enables the list buttons only when they have something to act on.
+func (a *app) updateButtons() {
+	i := a.appsTable.CurrentIndex()
+	a.removeBtn.SetEnabled(a.running() && i >= 0 && i < len(a.apps.rows))
+
+	j := a.pcsTable.CurrentIndex()
+	if !a.running() || j < 0 || j >= len(a.pcs.rows) {
+		a.pcBtn.SetEnabled(false)
+		a.pcBtn.SetText("Block")
+		return
+	}
+	c := a.pcs.rows[j]
+	a.pcBtn.SetEnabled(true)
+	if c.Blocked {
+		a.pcBtn.SetText(fmt.Sprintf("Unblock PC %d", c.Identity))
+	} else {
+		a.pcBtn.SetText(fmt.Sprintf("Block PC %d", c.Identity))
+	}
+}
+
+func plural(n int, word string) string {
+	if n == 1 {
+		return "1 " + word
+	}
+	return fmt.Sprintf("%d %ss", n, word)
+}
+
+func pluralVerb(n int) string {
+	if n == 1 {
+		return " is"
+	}
+	return " are"
+}
+
+func capitalize(s string) string {
+	if s == "" || s[0] < 'a' || s[0] > 'z' {
+		return s
+	}
+	return string(s[0]-32) + s[1:]
 }
 
 func agoText(d time.Duration) string {
@@ -247,8 +494,10 @@ func agoText(d time.Duration) string {
 		return fmt.Sprintf("%d s ago", int(d.Seconds()))
 	case d < time.Hour:
 		return fmt.Sprintf("%d min ago", int(d.Minutes()))
-	default:
+	case d < 48*time.Hour:
 		return fmt.Sprintf("%d h ago", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%d days ago", int(d.Hours()/24))
 	}
 }
 
@@ -258,12 +507,16 @@ func (a *app) act(f func() error) {
 		return
 	}
 	if err := f(); err != nil {
-		a.statusLine.SetText("⚠ " + err.Error())
+		walk.MsgBox(a.mw, appTitle, err.Error(), walk.MsgBoxIconWarning)
 	}
 	a.apply(a.fetch())
 }
 
-func (a *app) onStatusChanged() {
+func (a *app) setStatus(enabled bool, mode string) {
+	a.act(func() error { return a.client.SetStatus(enabled, mode) })
+}
+
+func (a *app) onModeChanged() {
 	if a.updating || !a.running() {
 		return
 	}
@@ -271,14 +524,18 @@ func (a *app) onStatusChanged() {
 	if i < 0 || i >= len(modes) {
 		return
 	}
-	a.act(func() error { return a.client.SetStatus(a.protection.Checked(), modes[i]) })
+	a.setStatus(a.enabled, modes[i])
 }
 
 func (a *app) addApp() {
 	if !a.running() {
 		return
 	}
-	text, ok := inputDialog(a.mw, "Add application", fmt.Sprintf("Process name to add to the %s:", a.currentMode))
+	prompt := "Process name to block:"
+	if a.currentMode == "whitelist" {
+		prompt = "Process name to allow:"
+	}
+	text, ok := inputDialog(a.mw, "Add application", prompt)
 	if !ok {
 		return
 	}
@@ -297,27 +554,49 @@ func (a *app) removeApp() {
 		return
 	}
 	app := a.apps.rows[i]
-	if walk.MsgBox(a.mw, appTitle, fmt.Sprintf("Remove %s from the %s?", app.Name, app.Mode), walk.MsgBoxYesNo|walk.MsgBoxIconQuestion) != walk.DlgCmdYes {
+	if walk.MsgBox(a.mw, appTitle, fmt.Sprintf("Remove %s from the list?", app.Name), walk.MsgBoxYesNo|walk.MsgBoxIconQuestion) != walk.DlgCmdYes {
 		return
 	}
 	a.act(func() error { return a.client.RemoveApp(app.Name, app.Mode) })
 }
 
-func (a *app) setSelectedBlocked(blocked bool) {
+func (a *app) togglePC() {
 	i := a.pcsTable.CurrentIndex()
 	if !a.running() || i < 0 || i >= len(a.pcs.rows) {
 		return
 	}
-	id := a.pcs.rows[i].Identity
-	a.act(func() error { return a.client.SetBlocked(id, blocked) })
+	c := a.pcs.rows[i]
+	a.act(func() error { return a.client.SetBlocked(c.Identity, !c.Blocked) })
 }
 
-func (a *app) togglePC() {
-	i := a.pcsTable.CurrentIndex()
-	if i < 0 || i >= len(a.pcs.rows) {
+func (a *app) styleApp(style *walk.CellStyle) {
+	row := style.Row()
+	if row < 0 || row >= len(a.apps.rows) {
 		return
 	}
-	a.setSelectedBlocked(!a.pcs.rows[i].Blocked)
+	if !a.apps.rows[row].Enabled {
+		style.TextColor = grayFg
+	}
+}
+
+func (a *app) stylePC(style *walk.CellStyle) {
+	row := style.Row()
+	if row < 0 || row >= len(a.pcs.rows) {
+		return
+	}
+	c := a.pcs.rows[row]
+	switch style.Col() {
+	case 1:
+		if core.IsOnline(c, a.pcs.now) {
+			style.TextColor = greenFg
+		} else {
+			style.TextColor = grayFg
+		}
+	case 2:
+		if c.Blocked {
+			style.TextColor = redFg
+		}
+	}
 }
 
 // appModel backs the Applications table; the check box is "enabled".
@@ -350,10 +629,18 @@ func (m *appModel) Value(row, col int) interface{} {
 	if row < 0 || row >= len(m.rows) {
 		return ""
 	}
+	r := m.rows[row]
 	if col == 0 {
-		return m.rows[row].Name
+		return r.Name
 	}
-	return m.rows[row].Mode
+	switch {
+	case !r.Enabled:
+		return "Paused"
+	case r.Mode == "whitelist":
+		return "Allowed"
+	default:
+		return "Blocked"
+	}
 }
 
 func (m *appModel) Checked(row int) bool {
@@ -401,18 +688,21 @@ func (m *pcModel) Value(row, col int) interface{} {
 		return ""
 	}
 	c := m.rows[row]
-	if col == 0 {
+	switch col {
+	case 0:
 		return fmt.Sprintf("PC %d", c.Identity)
-	}
-	online := core.IsOnline(c, m.now)
-	switch {
-	case !online && c.Blocked:
-		return "offline (blocked)"
-	case !online:
-		return "offline"
-	case c.Blocked:
-		return "● blocked"
+	case 1:
+		if core.IsOnline(c, m.now) {
+			return "● Online"
+		}
+		if d, ok := core.LastSeen(c, m.now); ok {
+			return "Offline · " + agoText(d)
+		}
+		return "Offline"
 	default:
-		return "● online"
+		if c.Blocked {
+			return "Blocked"
+		}
+		return "Free"
 	}
 }

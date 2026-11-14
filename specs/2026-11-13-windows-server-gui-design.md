@@ -133,6 +133,34 @@ of the lesson, it runs the server, and the teacher blocks applications and compu
 - The project rule: update `specs/server.md`, `specs/api.md` (only if the API changes —
   it should not), `CLAUDE.md`, `README.md` and `CHANGELOG.md` with the change.
 
+## Window as built (UI pass, 2026-11-14)
+
+The layout B intent is kept; the presentation was reworked after the owner's first look:
+
+- **State card** at the top, coloured by state: green "Protection is on" (with one
+  sentence on what the agents do now, e.g. "2 applications are closed on blocked
+  computers. 5 of 7 computers follow the rules."), amber "Protection is off", red "Server is
+  not running" with the reason. A large **Turn protection on/off** button replaces the
+  checkbox.
+- **Rule** drop-down in plain words: "Block the listed apps" (blacklist) / "Allow only the
+  listed apps" (whitelist). Then "All computers: **Block all** / **Unblock all**".
+- **Banner** (amber, hidden when there is nothing to say): firewall error, server read
+  error, or the 2-minute no-agent warning with its own **Connection info…** button.
+- **Applications** group shows **only the current mode's list**, titled "Blocked
+  applications (N)" or "Allowed applications (N)"; columns Application / Rule
+  (Blocked, Allowed, Paused — unticked rows are grey). **Remove** is enabled only with a
+  selection; **Delete** removes too. The other mode's list stays on the server untouched.
+- **Computers** group titled "Computers (n/m online)"; columns Computer / Connection
+  ("● Online" green, "Offline · 5 min ago" grey) / Rules ("Blocked" red, "Free"). One
+  button that names its action, "Block PC 7" / "Unblock PC 7"; double-click toggles too.
+  **Connection info…** sits at the right of this group's toolbar (renamed from
+  "Connect…", which did not say what is connected; it is not "Settings" because nothing
+  in it can be changed).
+- Empty lists show a short hint with the next step instead of a blank table.
+- **Status bar:** server port and address, last agent sync.
+- Segoe UI 9 pt, 12 px window margins. The Connection info window is split into "1. Student
+  computers" and "2. Android app (optional)", with a Show/Hide toggle for ADMIN_TOKEN.
+
 ## Left to the builder
 
 - Exact widget layout, sizes, colours and wording (in English).

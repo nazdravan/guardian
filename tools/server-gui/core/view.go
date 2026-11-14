@@ -39,6 +39,39 @@ func SortApps(apps []guardian.Application) {
 	})
 }
 
+// AppsForMode keeps only the applications of mode. The server stores a
+// blacklist and a whitelist side by side, but only the current mode's list
+// reaches the agents, so the window shows that one.
+func AppsForMode(apps []guardian.Application, mode string) []guardian.Application {
+	out := make([]guardian.Application, 0, len(apps))
+	for _, a := range apps {
+		if a.Mode == mode {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// CountEnabled is how many applications are ticked, i.e. actually enforced.
+func CountEnabled(apps []guardian.Application) int {
+	n := 0
+	for _, a := range apps {
+		if a.Enabled {
+			n++
+		}
+	}
+	return n
+}
+
+// LastSeen is how long ago c synced, or false if its time cannot be read.
+func LastSeen(c guardian.Computer, now time.Time) (time.Duration, bool) {
+	t, ok := syncTime(c)
+	if !ok {
+		return 0, false
+	}
+	return now.Sub(t), true
+}
+
 func syncTime(c guardian.Computer) (time.Time, bool) {
 	t, err := time.Parse(time.RFC3339, c.DateTime)
 	return t, err == nil
@@ -90,7 +123,7 @@ func NoAgentWarning(startedAt time.Time, cs []guardian.Computer, now time.Time) 
 	return !ok || !last.After(startedAt)
 }
 
-// ConnectInfo is what the Connect window offers for copying.
+// ConnectInfo is what the Connection info window offers for copying.
 type ConnectInfo struct {
 	AgentLine   string // SERVER_ADDRESS line for agent.env
 	TokenLine   string // TOKEN line for agent.env
@@ -99,7 +132,7 @@ type ConnectInfo struct {
 	AdminToken  string
 }
 
-// NewConnectInfo builds the Connect window's values.
+// NewConnectInfo builds the Connection info window's values.
 func NewConnectInfo(hostname, ip string, s Settings) ConnectInfo {
 	byName := fmt.Sprintf("http://%s:%d", hostname, s.Port)
 	return ConnectInfo{

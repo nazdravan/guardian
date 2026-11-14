@@ -98,3 +98,30 @@ func TestNewConnectInfo(t *testing.T) {
 		t.Errorf("NewConnectInfo = %+v, want %+v", ci, want)
 	}
 }
+
+func TestAppsForMode(t *testing.T) {
+	apps := []guardian.Application{
+		{Name: "chrome.exe", Mode: "blacklist", Enabled: true},
+		{Name: "word.exe", Mode: "whitelist", Enabled: true},
+		{Name: "roblox.exe", Mode: "blacklist", Enabled: false},
+	}
+	got := AppsForMode(apps, "blacklist")
+	if len(got) != 2 || got[0].Name != "chrome.exe" || got[1].Name != "roblox.exe" {
+		t.Errorf("AppsForMode(blacklist) = %+v", got)
+	}
+	if n := CountEnabled(got); n != 1 {
+		t.Errorf("CountEnabled = %d, want 1", n)
+	}
+	if got := AppsForMode(nil, "whitelist"); got == nil || len(got) != 0 {
+		t.Errorf("AppsForMode(nil) = %#v, want empty non-nil", got)
+	}
+}
+
+func TestLastSeen(t *testing.T) {
+	if d, ok := LastSeen(pc(1, 90*time.Second), t0); !ok || d != 90*time.Second {
+		t.Errorf("LastSeen = %v, %v; want 90s", d, ok)
+	}
+	if _, ok := LastSeen(guardian.Computer{DateTime: "garbage"}, t0); ok {
+		t.Error("LastSeen accepted an unreadable time")
+	}
+}

@@ -91,7 +91,7 @@ docker compose up -d     # Option C — Docker (env is optional; pass vars via c
 
 Double-click `server-windows/GuardianServer.exe` and accept the administrator prompt. It
 generates the tokens, opens port 8080 in Windows Firewall for the local network, and runs
-the server while its window is open. Block apps and computers in the window; **Connect…**
+the server while its window is open. Block apps and computers in the window; **Connection info…**
 shows the `SERVER_ADDRESS=http://<PC-NAME>:8080` line and `TOKEN` for `agent.env`, and the
 phone's address and `ADMIN_TOKEN`. When the window is closed, agents keep the last rules.
 Do not install an agent on the teacher's PC.
