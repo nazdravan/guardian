@@ -33,6 +33,13 @@ jobs:
       - name: Guardian Console tests
         shell: pwsh
         run: ./tools/whitelist-gui/test.ps1 -SkipGui
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/server-gui/go.mod
+          cache-dependency-path: tools/server-gui/go.sum
+      - name: Guardian Server for Windows tests
+        shell: pwsh
+        run: ./tools/server-gui/test.ps1 -SkipGui
 
   package:
     needs: console-tests
@@ -62,6 +69,7 @@ jobs:
             server/go.sum
             agent/go.sum
             tools/whitelist-gui/go.sum
+            tools/server-gui/go.sum
 
       - uses: actions/setup-java@v4
         with:
@@ -76,9 +84,10 @@ jobs:
           flutter-version: 3.35.x
           cache: true
 
-      - name: go vet
+      - name: go vet and tests
         run: |
-          (cd server && go vet ./...)
+          (cd server && go vet ./... && go test ./...)
+          (cd tools/server-gui && go test ./core && GOOS=windows GOARCH=386 go vet ./...)
           (cd agent && go vet ./... && GOOS=windows go vet ./...)
 
       # A published APK must be signed with the release key, or phones refuse

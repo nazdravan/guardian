@@ -307,23 +307,28 @@ Get all registered computers.
     {
       "identity": 1,
       "blocked": true,
-      "datetime": "2026-03-28 01:03:10"
+      "datetime": "2026-03-27T23:03:10Z"
     },
     {
       "identity": 2,
       "blocked": false,
-      "datetime": "2026-03-28 01:05:22"
+      "datetime": "2026-03-27T23:05:22Z"
     }
   ],
   "current_time": "2026-03-28T01:10:00+02:00"
 }
 ```
 
+`datetime` is the computer's last sync, RFC 3339 in UTC; `current_time` is the server's
+local time with its offset. Compare them as instants: a computer is online if it synced
+less than 60 s before `current_time`.
+
 ---
 
 ### `PUT /manage/computers`
 
-Update a computer's blocked status.
+Update a computer's blocked status. An unknown identity is created; an existing one keeps
+its last-sync `datetime` (blocking an offline computer does not make it look online).
 
 **Request**
 ```json

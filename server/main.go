@@ -1,59 +1,38 @@
 package main
 
 import (
+	"bufio"
 	"context"
-	"database/sql"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
-	_ "modernc.org/sqlite"
+	"server/guardian"
 )
 
-// Server holds the state of the guardian server
-type Server struct {
-	mu           sync.RWMutex
-	db           *sql.DB
-	appsCache    map[string]Application
-	enabledCache bool
-	modeCache    string
-	clientCache  map[string]bool
+// fallbackToken is used when TOKEN or ADMIN_TOKEN is not set, as before.
+const fallbackToken = "mILp9n6shk3G9SGSaS2nmP6YlLHwsP1Z"
+
+func getenvDefault(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }
 
-func NewServer() (*Server, error) {
-	db, err := openDatabase("./guardian.db")
-	if err != nil {
-		return nil, err
+// configFromEnv builds the server config the Linux binary has always used:
+// ./guardian.db in the working directory and tokens from the environment.
+func configFromEnv() guardian.Config {
+	return guardian.Config{
+		DBPath:      "./guardian.db",
+		ClientToken: getenvDefault("TOKEN", fallbackToken),
+		AdminToken:  getenvDefault("ADMIN_TOKEN", fallbackToken),
 	}
-
-	s := &Server{
-		db:          db,
-		appsCache:   make(map[string]Application),
-		modeCache:   "blacklist",
-		clientCache: make(map[string]bool),
-	}
-
-	if err := s.initDatabase(); err != nil {
-		return nil, fmt.Errorf("failed to initialize database: %v", err)
-	}
-	if err := s.loadFromDatabase(); err != nil {
-		return nil, fmt.Errorf("failed to load data: %v", err)
-	}
-
-	return s, nil
-}
-
-func (s *Server) Close() error {
-	if s.db != nil {
-		return s.db.Close()
-	}
-	return nil
 }
 
 func main() {
@@ -63,14 +42,12 @@ func main() {
 		slog.Warn("could not load .env file", "error", err)
 	}
 
-	server, err := NewServer()
+	server, err := guardian.New(configFromEnv())
 	if err != nil {
 		slog.Error("failed to create server", "error", err)
 		os.Exit(1)
 	}
 	defer server.Close()
-
-	router := server.setupRoutes()
 
 	addr := "0.0.0.0:8080"
 	displayAddr := "http://localhost:8080/"
@@ -82,7 +59,7 @@ func main() {
 
 	httpServer := &http.Server{
 		Addr:         addr,
-		Handler:      router,
+		Handler:      server.Handler(),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
@@ -111,4 +88,37 @@ func main() {
 		slog.Error("shutdown error", "error", err)
 	}
 	slog.Info("server stopped")
+}
+
+// loadEnvFile loads KEY=VALUE lines into the environment without overriding
+// variables that are already set.
+func loadEnvFile(filename string) error {
+	file, err := os.Open(filename)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 {
+			key := strings.TrimSpace(parts[0])
+			value := strings.TrimSpace(parts[1])
+			if len(value) >= 2 {
+				if (strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"")) ||
+					(strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'")) {
+					value = value[1 : len(value)-1]
+				}
+			}
+			if os.Getenv(key) == "" {
+				os.Setenv(key, value)
+			}
+		}
+	}
+	return scanner.Err()
 }

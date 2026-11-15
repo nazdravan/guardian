@@ -1,4 +1,4 @@
-package main
+package guardian
 
 import (
 	"github.com/go-chi/chi/v5"
@@ -21,13 +21,13 @@ func (s *Server) setupRoutes() *chi.Mux {
 
 	// Client auth (agent endpoints)
 	r.Group(func(r chi.Router) {
-		r.Use(ClientAuth)
+		r.Use(authMiddleware(s.clientToken))
 		r.Get("/client/sync", s.handleClientSync)
 	})
 
 	// Admin auth (management endpoints)
 	r.Group(func(r chi.Router) {
-		r.Use(AdminAuth)
+		r.Use(authMiddleware(s.adminToken))
 
 		r.Get("/manage/applications", s.handleGetAllApplications)
 		r.Post("/manage/applications", s.handleAddApplication)
