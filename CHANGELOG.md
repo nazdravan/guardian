@@ -15,6 +15,7 @@ All notable changes to this project will be documented in this file.
 - Ships in `server-windows/` of the release archive
 
 ### Server
+- Fixed random "Failed to update database" (`SQLITE_BUSY`) when ticking an application or a computer while agents sync: the database now waits up to 5 s for a lock and uses WAL
 - The server is now the importable package `server/guardian`; the Linux binary behaves as before
 - Blocking or unblocking a computer no longer resets its last sync time, so an offline PC no longer shows as online for a minute
 - First automated tests (`cd server && go test ./...`)

@@ -45,6 +45,13 @@ All state access is serialized through `sync.RWMutex`. Reads acquire `RLock`, wr
 
 **SQLite file:** `./guardian.db`
 
+**Connection settings** (`openDatabase` in `guardian/db.go`, applied to every pooled
+connection through the DSN): `busy_timeout(5000)` and `journal_mode(WAL)`. Agents write
+their last sync on every `/client/sync` while the phone or the Windows window read; without
+a busy timeout such a write fails at once with `SQLITE_BUSY` ("Failed to update database"),
+and WAL lets readers and the writer proceed side by side. WAL keeps `guardian.db-wal` and
+`guardian.db-shm` next to the database; back up all three, or stop the server first.
+
 ### `applications`
 | Column     | Type     | Notes                          |
 |------------|----------|--------------------------------|
