@@ -6,8 +6,15 @@ import (
 	"log/slog"
 )
 
+// dbPragmas run on every new connection of the pool. Agents write their last
+// sync on every /client/sync while the window and the phone read; without a
+// busy timeout SQLite fails a write that meets another connection's lock at
+// once with SQLITE_BUSY ("Failed to update database"), and WAL lets readers
+// and the writer work side by side instead of blocking each other.
+const dbPragmas = "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+
 func openDatabase(path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite", path+dbPragmas)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %v", err)
 	}
