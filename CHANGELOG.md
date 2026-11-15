@@ -14,6 +14,9 @@ All notable changes to this project will be documented in this file.
 - Warns when no agent has connected for 2 minutes
 - Ships in `server-windows/` of the release archive
 
+### Release archive
+- The Linux server folder is now `server-linux/` (was `server/`), next to `server-windows/`
+
 ### Server
 - Fixed random "Failed to update database" (`SQLITE_BUSY`) when ticking an application or a computer while agents sync: the database now waits up to 5 s for a lock and uses WAL
 - The server is now the importable package `server/guardian`; the Linux binary behaves as before
@@ -55,6 +58,9 @@ All notable changes to this project will be documented in this file.
 - Sort applications: disabled first, then alphabetically by name
 - Remove active/inactive status bar and switch from Dashboard
 - Move snackbar notifications to bottom with 1-second duration
+
+### Release archive
+- The Linux server folder is now `server-linux/` (was `server/`), next to `server-windows/`
 
 ### Server
 - No changes

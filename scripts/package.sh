@@ -3,7 +3,7 @@
 #
 #   dist/guardian-<version>.zip
 #     guardian-<version>/
-#       server/          guardian-server (linux/amd64), server.env, install.sh, systemd unit, Docker files
+#       server-linux/    guardian-server (linux/amd64), server.env, install.sh, systemd unit, Docker files
 #       server-windows/  GuardianServer.exe (windows/386 GUI that runs the server), README.txt
 #       agent-windows/   Guardian.exe, Install/Uninstall .bat, agent.env, bin/ (ps1 + 32/64-bit agent)
 #       agent-linux/     procsentinel-agent (linux/amd64), agent.env, install.sh, uninstall.sh, systemd unit
@@ -25,7 +25,7 @@ OUT="$ROOT/dist/$NAME"
 
 rm -rf "$OUT" "$ROOT/dist/$NAME.zip"
 mkdir -p "$OUT"
-cp -R "$ROOT/packaging/server" "$ROOT/packaging/server-windows" "$ROOT/packaging/agent-windows" "$ROOT/packaging/agent-linux" "$OUT/"
+cp -R "$ROOT/packaging/server-linux" "$ROOT/packaging/server-windows" "$ROOT/packaging/agent-windows" "$ROOT/packaging/agent-linux" "$OUT/"
 
 gobuild() { # <module dir> <GOOS> <GOARCH> <output> [extra ldflags]
   (cd "$ROOT/$1" && CGO_ENABLED=0 GOOS="$2" GOARCH="$3" \
@@ -33,7 +33,7 @@ gobuild() { # <module dir> <GOOS> <GOARCH> <output> [extra ldflags]
 }
 
 echo "==> server (linux/amd64)"
-gobuild server linux amd64 "$OUT/server/guardian-server"
+gobuild server linux amd64 "$OUT/server-linux/guardian-server"
 
 echo "==> agent (windows/amd64, windows/386, linux/amd64)"
 mkdir -p "$OUT/agent-windows/bin/agent"

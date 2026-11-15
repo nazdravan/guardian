@@ -2,7 +2,7 @@
 # GitHub Release only when ./VERSION names a version that has no tag yet.
 #
 #   guardian-<version>.zip
-#     server/  agent-windows/  agent-linux/  guardian.apk
+#     server-linux/  server-windows/  agent-windows/  agent-linux/  guardian.apk
 #
 # See scripts/package.sh for the layout. To ship a release: bump VERSION and
 # push to main. Any other push just rebuilds and keeps the zip as a run artifact.

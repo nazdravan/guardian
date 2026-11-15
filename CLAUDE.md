@@ -90,6 +90,7 @@ cd mobile && flutter pub run flutter_launcher_icons
 - Dark "terminal" aesthetic with an animated "fleet console" hero (vanilla JS, respects `prefers-reduced-motion`)
 - Brand assets in `docs/assets/` (also used by `README.md`); served directly via GitHub Pages from the `docs/` folder
 - App screenshots in `docs/assets/screenshots/` (720px-wide JPEGs of the Android app, v2.1.0), shown in the landing's `#app` section and in `README.md`; the section's captions are i18n keys `app_*`/`shot_*` in all five languages
+- Video walkthrough (YouTube `CkksD9YpDVw`, Windows install, in Romanian): embedded in the `#deploy` section via `youtube-nocookie.com` (i18n keys `video_*`) and linked as a thumbnail in `README.md`'s Video section
 - Preview locally: `cd docs && python3 -m http.server 8099` → http://localhost:8099
 
 ### API Endpoints
@@ -118,7 +119,7 @@ in `packaging/`; `scripts/package.sh` copies them next to the freshly built bina
 ```
 guardian-<VERSION>.zip
 └── guardian-<VERSION>/
-    ├── server/          # guardian-server (linux/amd64), server.env, install.sh, systemd unit, Docker files
+    ├── server-linux/    # guardian-server (linux/amd64), server.env, install.sh, systemd unit, Docker files
     ├── server-windows/  # GuardianServer.exe (GUI that runs the server on the teacher's PC), README.txt
     ├── agent-windows/   # Guardian.exe (console), Install/Uninstall .bat, agent.env,
     │                    # bin/ (Install/Uninstall-Agent32/64.ps1, agent/procsentinel-agent32/64.exe)

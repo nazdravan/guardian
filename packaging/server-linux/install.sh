@@ -1,6 +1,6 @@
 #!/bin/bash
 # Installs or upgrades the Guardian server as a systemd service.
-# Run it from the unpacked server/ folder of the release archive.
+# Run it from the unpacked server-linux/ folder of the release archive.
 set -e
 
 if [ "$EUID" -ne 0 ]; then
