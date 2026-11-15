@@ -500,6 +500,20 @@ Settings → server + token</code></pre>
         </article>
       </div>
 
+      <!-- video walkthrough -->
+      <div class="reveal mt-12 grid items-center gap-8 lg:grid-cols-5">
+        <div class="lg:col-span-2">
+          <p class="kicker"><span class="slash">//</span> <span data-i18n="video_kicker">Video</span></p>
+          <h3 class="h-section mt-3 text-2xl sm:text-3xl" data-i18n="video_t">Watch the install, step by step.</h3>
+          <p class="mt-3 text-muted" data-i18n="video_b">Server and agent on Windows, from unpacking the archive to the first blocked app. In Romanian.</p>
+        </div>
+        <div class="lg:col-span-3">
+          <div class="relative overflow-hidden rounded-2xl border border-line bg-void" style="aspect-ratio:16/9">
+            <iframe class="absolute inset-0 h-full w-full" src="https://www.youtube-nocookie.com/embed/CkksD9YpDVw" title="Guardian pe Windows: instalarea serverului și a agentului, pas cu pas" loading="lazy" frameborder="0" allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+          </div>
+        </div>
+      </div>
+
       <!-- final CTA -->
       <div class="reveal mt-12 overflow-hidden rounded-2xl border border-line bg-gradient-to-br from-raised to-void p-8 text-center sm:p-12">
         <h3 class="h-section text-2xl sm:text-3xl" data-i18n="cta_h3">Ready to take the fleet?</h3>
@@ -558,6 +572,7 @@ Settings → server + token</code></pre>
         mode_bl_b: "Only processes on the block list are killed. Everything else runs freely. Good for banning specific apps.",
         mode_wl_b: "Everything <em class='not-italic text-ink'>not</em> on the allow list is killed — system processes excluded. Lockdown for kiosks and classrooms.",
         mode_free_b: "Nothing is killed. Returned automatically when the server is disabled or a machine is unblocked.",
+        video_kicker: "Video", video_t: "Watch the install, step by step.", video_b: "Server and agent on Windows, from unpacking the archive to the first blocked app. In Romanian.",
         deploy_kicker: "Deploy", deploy_h2: "Up and running in three steps.",
         deploy_intro: "Pre-built binaries ship in the <span class='font-mono text-ink'>dist/</span> directory. Copy, configure, go.",
         deploy1_t: "Run the server", deploy1_b: "Set your <span class='font-mono text-ink'>TOKEN</span> and <span class='font-mono text-ink'>ADMIN_TOKEN</span>, then start it.",
@@ -595,6 +610,7 @@ Settings → server + token</code></pre>
         mode_bl_b: "Sunt oprite doar procesele din lista de blocare. Restul rulează liber. Bun pentru a interzice aplicații anume.",
         mode_wl_b: "Tot ce <em class='not-italic text-ink'>nu</em> e pe lista permisă e oprit — procesele de sistem sunt excluse. Blocare totală pentru chioșcuri și săli de clasă.",
         mode_free_b: "Nimic nu e oprit. Se activează automat când serverul e dezactivat sau o mașină e deblocată.",
+        video_kicker: "Video", video_t: "Instalarea, pas cu pas.", video_b: "Serverul și agentul pe Windows, de la dezarhivare până la prima aplicație blocată.",
         deploy_kicker: "Instalare", deploy_h2: "Gata de funcționare în trei pași.",
         deploy_intro: "Binarele precompilate vin în directorul <span class='font-mono text-ink'>dist/</span>. Copiezi, configurezi, gata.",
         deploy1_t: "Pornește serverul", deploy1_b: "Setează-ți <span class='font-mono text-ink'>TOKEN</span> și <span class='font-mono text-ink'>ADMIN_TOKEN</span>, apoi pornește-l.",
@@ -632,6 +648,7 @@ Settings → server + token</code></pre>
         mode_bl_b: "Убиваются только процессы из списка блокировки. Всё остальное работает свободно. Подходит, чтобы запретить конкретные приложения.",
         mode_wl_b: "Убивается всё, чего <em class='not-italic text-ink'>нет</em> в списке разрешённых — системные процессы исключены. Полная блокировка для киосков и учебных классов.",
         mode_free_b: "Ничего не убивается. Включается автоматически, когда сервер выключен или машина разблокирована.",
+        video_kicker: "Видео", video_t: "Установка шаг за шагом.", video_b: "Сервер и агент на Windows: от распаковки архива до первого заблокированного приложения. На румынском.",
         deploy_kicker: "Установка", deploy_h2: "Запуск за три шага.",
         deploy_intro: "Готовые бинарники лежат в каталоге <span class='font-mono text-ink'>dist/</span>. Скопируйте, настройте, поехали.",
         deploy1_t: "Запустите сервер", deploy1_b: "Задайте <span class='font-mono text-ink'>TOKEN</span> и <span class='font-mono text-ink'>ADMIN_TOKEN</span>, затем запустите.",
@@ -669,6 +686,7 @@ Settings → server + token</code></pre>
         mode_bl_b: "Solo se matan los procesos de la lista de bloqueo. Todo lo demás se ejecuta libremente. Ideal para vetar apps concretas.",
         mode_wl_b: "Se mata todo lo que <em class='not-italic text-ink'>no</em> esté en la lista permitida — los procesos del sistema quedan excluidos. Bloqueo total para kioscos y aulas.",
         mode_free_b: "No se mata nada. Se activa automáticamente cuando el servidor está desactivado o una máquina está desbloqueada.",
+        video_kicker: "Vídeo", video_t: "La instalación, paso a paso.", video_b: "Servidor y agente en Windows, desde descomprimir el archivo hasta la primera app bloqueada. En rumano.",
         deploy_kicker: "Despliegue", deploy_h2: "En marcha en tres pasos.",
         deploy_intro: "Los binarios precompilados vienen en el directorio <span class='font-mono text-ink'>dist/</span>. Copia, configura y listo.",
         deploy1_t: "Arranca el servidor", deploy1_b: "Define tu <span class='font-mono text-ink'>TOKEN</span> y <span class='font-mono text-ink'>ADMIN_TOKEN</span>, y luego arráncalo.",
@@ -706,6 +724,7 @@ Settings → server + token</code></pre>
         mode_bl_b: "Nur Prozesse auf der Sperrliste werden beendet. Alles andere läuft frei. Gut, um bestimmte Apps zu verbieten.",
         mode_wl_b: "Alles, was <em class='not-italic text-ink'>nicht</em> auf der Erlaubnisliste steht, wird beendet — Systemprozesse ausgenommen. Komplette Sperre für Kioske und Klassenräume.",
         mode_free_b: "Es wird nichts beendet. Wird automatisch aktiv, wenn der Server deaktiviert oder eine Maschine entsperrt ist.",
+        video_kicker: "Video", video_t: "Die Installation Schritt für Schritt.", video_b: "Server und Agent unter Windows, vom Entpacken des Archivs bis zur ersten gesperrten App. Auf Rumänisch.",
         deploy_kicker: "Einrichtung", deploy_h2: "In drei Schritten startklar.",
         deploy_intro: "Vorgefertigte Binärdateien liegen im Verzeichnis <span class='font-mono text-ink'>dist/</span>. Kopieren, konfigurieren, los.",
         deploy1_t: "Server starten", deploy1_b: "Setze deinen <span class='font-mono text-ink'>TOKEN</span> und <span class='font-mono text-ink'>ADMIN_TOKEN</span> und starte ihn dann.",

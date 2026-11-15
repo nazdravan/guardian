@@ -15,7 +15,7 @@
 [![Mobile](https://img.shields.io/badge/mobile-Android-3DDC84?style=flat-square&logo=android&logoColor=white)](mobile/)
 [![Built with](https://img.shields.io/badge/built%20with-Go_%7C_Flutter-02569B?style=flat-square&logo=flutter&logoColor=white)](https://flutter.dev)
 
-[**Quick Start**](#quick-start) · [Architecture](#architecture) · [API Reference](#api-reference) · [Issues](../../issues)
+[**Quick Start**](#quick-start) · [Video](#video) · [Architecture](#architecture) · [API Reference](#api-reference) · [Issues](../../issues)
 
 </div>
 
@@ -32,6 +32,18 @@
 
 ---
 
+## Video
+
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=CkksD9YpDVw">
+    <img src="https://img.youtube.com/vi/CkksD9YpDVw/maxresdefault.jpg" alt="Guardian pe Windows: instalarea serverului și a agentului, pas cu pas" width="640" />
+  </a>
+  <br />
+  <sub>Installing the server and the agent on Windows, step by step (in Romanian).</sub>
+</p>
+
+---
+
 ## Quick Start
 
 Download `guardian-<version>.zip` from [Releases](https://github.com/nazdravan/guardian/releases)
@@ -39,7 +51,7 @@ and unpack it:
 
 ```
 guardian-<version>/
-├── server/                          # Linux server
+├── server-linux/                    # Linux server
 │   ├── guardian-server              # Server binary (linux/amd64)
 │   ├── server.env                   # Server config template
 │   ├── install.sh                   # Install as a systemd service
@@ -67,7 +79,7 @@ To build the archive yourself: `./scripts/package.sh` → `dist/guardian-<VERSIO
 
 ### 1. Server (Linux)
 
-Copy `server/` to your server, then rename and configure the env file:
+Copy `server-linux/` to your server, then rename and configure the env file:
 
 ```bash
 cp server.env .env
