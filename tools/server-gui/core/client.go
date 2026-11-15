@@ -126,6 +126,30 @@ func (c *Client) BlockAll() error {
 	return c.call("PUT", "/manage/computers/block_all", nil, nil)
 }
 
+// PowerEntry is the client entry the agents read: false shuts down every
+// blocked computer, and again each time one is switched on.
+const PowerEntry = "power"
+
+// PowerOn reports whether computers may run. A missing entry means on, like
+// the agent and the phone treat it.
+func (c *Client) PowerOn() (bool, error) {
+	var r guardian.ClientEntryResponse
+	if err := c.call("GET", "/client", nil, &r); err != nil {
+		return true, err
+	}
+	for _, e := range r.Entries {
+		if e.Name == PowerEntry {
+			return e.Status, nil
+		}
+	}
+	return true, nil
+}
+
+// SetPower switches the shutdown on (false) or off (true).
+func (c *Client) SetPower(on bool) error {
+	return c.call("PUT", "/client", guardian.ClientEntry{Name: PowerEntry, Status: on}, nil)
+}
+
 // UnblockAll unblocks every known computer.
 func (c *Client) UnblockAll() error {
 	return c.call("DELETE", "/manage/computers/reset", nil, nil)

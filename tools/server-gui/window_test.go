@@ -68,11 +68,6 @@ func TestBuildWindow(t *testing.T) {
 	if got := a.cardTitle.Text(); got != "Protection is on" {
 		t.Errorf("state card = %q, want Protection is on", got)
 	}
-	a.pcsTable.SetCurrentIndex(-1)
-	a.updateButtons()
-	if a.pcBtn.Enabled() {
-		t.Error("PC button enabled with nothing selected")
-	}
 
 	// The selection survives a refresh.
 	a.pcsTable.SetCurrentIndex(0)
@@ -80,8 +75,33 @@ func TestBuildWindow(t *testing.T) {
 	if a.pcsTable.CurrentIndex() != 0 {
 		t.Errorf("selection after refresh = %d, want 0", a.pcsTable.CurrentIndex())
 	}
-	// A new computer starts blocked, so the button offers to unblock it.
-	if got := a.pcBtn.Text(); !a.pcBtn.Enabled() || got != "Unblock PC 7" {
-		t.Errorf("PC button = %q (enabled %v), want Unblock PC 7", got, a.pcBtn.Enabled())
+	// A new computer starts blocked, so its box is ticked; unticking unblocks it.
+	if !a.pcs.Checked(0) {
+		t.Error("new computer not ticked")
+	}
+	if err := a.pcs.SetChecked(0, false); err != nil {
+		t.Fatal(err)
+	}
+	if pcs, _, err := a.client.Computers(); err != nil || len(pcs) != 1 || pcs[0].Blocked {
+		t.Errorf("after unticking: %+v, %v; want PC 7 unblocked", pcs, err)
+	}
+	if a.pcs.Checked(0) {
+		t.Error("computer still ticked after unticking")
+	}
+
+	// Shutdown: the banner and the button follow the power entry.
+	if shown(a.powerBanner) {
+		t.Error("shutdown banner visible while power is on")
+	}
+	if err := a.client.SetPower(false); err != nil {
+		t.Fatal(err)
+	}
+	a.apply(a.fetch())
+	if !shown(a.powerBanner) || a.powerBtn.Text() != "Allow start" {
+		t.Errorf("power off: banner visible=%v, button %q", shown(a.powerBanner), a.powerBtn.Text())
+	}
+	a.togglePower() // power is off, so this allows start again without asking
+	if on, _ := a.client.PowerOn(); !on || shown(a.powerBanner) {
+		t.Errorf("after Allow start: power=%v banner visible=%v", on, shown(a.powerBanner))
 	}
 }

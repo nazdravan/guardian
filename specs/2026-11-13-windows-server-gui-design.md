@@ -143,21 +143,36 @@ The layout B intent is kept; the presentation was reworked after the owner's fir
   not running" with the reason. A large **Turn protection on/off** button replaces the
   checkbox.
 - **Rule** drop-down in plain words: "Block the listed apps" (blacklist) / "Allow only the
-  listed apps" (whitelist). Then "All computers: **Block all** / **Unblock all**".
+  listed apps" (whitelist). Then "All computers: **Block all** / **Unblock all** / **Shut down…**".
+- **Shut down…** sets the server's `power` client entry to false, after a confirmation
+  (default button: No). Agents then shut down every **blocked** computer within a minute,
+  and again each time one is switched on, until the teacher clicks **Allow computers to
+  start** (power back to true). While power is off a red banner says so, and the button
+  reads **Allow start**. The button is red (green while it reads Allow start): native
+  Windows buttons ignore colours, so it is a hand-painted `CustomWidget`
+  (`colorbutton.go`). walk lays a CustomWidget out as greedy in both directions, so its
+  row has a `MaxSize` height and the lists below a large `StretchFactor`. The banner and the confirmation also say when the agents will
+  not act on it: protection off, no computer blocked, or blacklist mode with no
+  application ticked (the agent skips its whole check on an empty blacklist).
 - **Banner** (amber, hidden when there is nothing to say): firewall error, server read
   error, or the 2-minute no-agent warning with its own **Connection info…** button.
 - **Applications** group shows **only the current mode's list**, titled "Blocked
   applications (N)" or "Allowed applications (N)"; columns Application / Rule
   (Blocked, Allowed, Paused — unticked rows are grey). **Remove** is enabled only with a
   selection; **Delete** removes too. The other mode's list stays on the server untouched.
-- **Computers** group titled "Computers (n/m online)"; columns Computer / Connection
-  ("● Online" green, "Offline · 5 min ago" grey) / Rules ("Blocked" red, "Free"). One
-  button that names its action, "Block PC 7" / "Unblock PC 7"; double-click toggles too.
+- **Computers** group titled "Computers (n/m online · k blocked)"; each row has a check
+  box like the applications — ticked = blocked, i.e. the computer follows the rules —
+  and columns Computer / Connection ("● Online" green, "Offline · 5 min ago" grey).
   **Connection info…** sits at the right of this group's toolbar (renamed from
   "Connect…", which did not say what is connected; it is not "Settings" because nothing
   in it can be changed).
 - Empty lists show a short hint with the next step instead of a blank table.
 - **Status bar:** server port and address, last agent sync.
+- **No flicker on refresh:** the 3 s refresh repaints only what changed. Table rows are
+  compared with the previous refresh (`core.RowChanges`): a full reset only when rows were
+  added, removed or reordered, otherwise `PublishRowChanged` for the rows that look
+  different. Texts, colours, titles, visibility and the mode drop-down are set only when
+  they differ, because walk repaints on every set call.
 - Segoe UI 9 pt, 12 px window margins. The Connection info window is split into "1. Student
   computers" and "2. Android app (optional)", with a Show/Hide toggle for ADMIN_TOKEN.
 

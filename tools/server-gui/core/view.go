@@ -143,3 +143,42 @@ func NewConnectInfo(hostname, ip string, s Settings) ConnectInfo {
 		AdminToken:  s.AdminToken,
 	}
 }
+
+// RowChanges compares a table's rows before and after a refresh. keys identify
+// the rows and vals are what each row shows. When the same rows come back in
+// the same order, only the rows that look different need repainting; anything
+// else (a row added, removed or moved) needs a full reset. Repainting only
+// what changed is what stops the window flickering every few seconds.
+func RowChanges(oldKeys, newKeys, oldVals, newVals []string) (reset bool, changed []int) {
+	if len(oldKeys) != len(newKeys) || len(oldVals) != len(oldKeys) || len(newVals) != len(newKeys) {
+		return true, nil
+	}
+	for i := range newKeys {
+		if oldKeys[i] != newKeys[i] {
+			return true, nil
+		}
+	}
+	for i := range newVals {
+		if oldVals[i] != newVals[i] {
+			changed = append(changed, i)
+		}
+	}
+	return false, changed
+}
+
+// ShutdownBlocker explains why a shutdown sent to the agents would not happen,
+// or returns "" when it will. The agent only reads the power entry while it
+// enforces rules: protection on, the computer blocked, and -- in blacklist
+// mode -- at least one application ticked (agent/main.go skips the whole check
+// on an empty blacklist).
+func ShutdownBlocker(enabled bool, mode string, enabledApps, blockedPCs int) string {
+	switch {
+	case !enabled:
+		return "Protection is off, so no computer will shut down."
+	case mode == "blacklist" && enabledApps == 0:
+		return "No application is blocked, so the computers skip the check and will not shut down. Add one first."
+	case blockedPCs == 0:
+		return "No computer is blocked (ticked), so none will shut down."
+	}
+	return ""
+}

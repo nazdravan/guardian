@@ -6,6 +6,7 @@ import (
 
 	"github.com/lxn/walk"
 	. "github.com/lxn/walk/declarative"
+	"github.com/lxn/win"
 
 	"server-gui/core"
 	"server/guardian"
@@ -52,10 +53,16 @@ type app struct {
 	cardText   *walk.Label
 	protectBtn *walk.PushButton
 	cardBg     walk.Color
+	cardFg     walk.Color
 	cardBgSet  bool
 
 	modeCombo *walk.ComboBox
 	classBtns []*walk.PushButton
+	powerBtn  *colorButton
+
+	// Shutdown banner, shown while the power entry is off.
+	powerBanner *walk.Composite
+	powerText   *walk.Label
 
 	// Warning banner
 	banner        *walk.Composite
@@ -71,7 +78,6 @@ type app struct {
 	pcsBox   *walk.GroupBox
 	pcsHint  *walk.Label
 	pcsTable *walk.TableView
-	pcBtn    *walk.PushButton
 
 	sbServer *walk.StatusBarItem
 	sbSync   *walk.StatusBarItem
@@ -80,6 +86,7 @@ type app struct {
 	pcs         *pcModel
 	updating    bool // true while apply() sets widgets, so their events are ignored
 	enabled     bool
+	powerOn     bool
 	currentMode string
 	readErr     string
 	noAgent     bool
@@ -88,19 +95,22 @@ type app struct {
 
 // snapshot is one refresh's worth of server state, fetched off the UI thread.
 type snapshot struct {
-	status guardian.StatusResponse
-	apps   []guardian.Application
-	pcs    []guardian.Computer
-	now    time.Time
-	err    error
+	status  guardian.StatusResponse
+	apps    []guardian.Application
+	pcs     []guardian.Computer
+	powerOn bool
+	now     time.Time
+	err     error
 }
 
 func (a *app) running() bool { return a.client != nil }
 
 func (a *app) build() error {
 	a.apps = &appModel{a: a}
-	a.pcs = &pcModel{}
+	a.pcs = &pcModel{a: a}
 	a.currentMode = modes[0]
+	a.powerOn = true
+	a.powerBtn = &colorButton{text: "Shut down…", bg: dangerBg, down: dangerDown, onClick: a.togglePower}
 
 	// The builder applies CurrentIndex and other properties at the end of
 	// Create, which fires OnCurrentIndexChanged; without this guard every
@@ -142,9 +152,12 @@ func (a *app) build() error {
 					},
 				},
 			},
-			// 2. Class controls
+			// 2. Class controls. MaxSize caps the row's height: the colour button
+			// is a CustomWidget, which walk lays out as greedy in both directions,
+			// and that would otherwise make the whole row soak up the free height.
 			Composite{
-				Layout: HBox{MarginsZero: true, Spacing: 8},
+				MaxSize: Size{Height: 27},
+				Layout:  HBox{MarginsZero: true, Spacing: 8},
 				Children: []Widget{
 					Label{Text: "Rule:"},
 					ComboBox{
@@ -158,12 +171,24 @@ func (a *app) build() error {
 					HSpacer{},
 					Label{Text: "All computers:", TextColor: grayFg},
 					PushButton{AssignTo: &blockAll, Text: "Block all", OnClicked: func() { a.act(a.client.BlockAll) },
-						ToolTipText: "Apply the rules to every computer"},
+						ToolTipText: "Tick every computer: the rules apply to all of them"},
 					PushButton{AssignTo: &unblockAll, Text: "Unblock all", OnClicked: func() { a.act(a.client.UnblockAll) },
-						ToolTipText: "Let every computer run anything"},
+						ToolTipText: "Untick every computer: they can run anything"},
+					a.powerBtn.widget("Shut down every blocked computer"),
 				},
 			},
-			// 3. Warning banner, hidden unless something needs the teacher.
+			// 3. Shutdown banner, hidden while computers may run.
+			Composite{
+				AssignTo: &a.powerBanner,
+				Visible:  false,
+				Layout:   HBox{Margins: Margins{Left: 12, Top: 8, Right: 8, Bottom: 8}, Spacing: 8},
+				Children: []Widget{
+					Label{AssignTo: &a.powerText, TextColor: redFg},
+					HSpacer{},
+					PushButton{Text: "Allow computers to start", OnClicked: a.togglePower},
+				},
+			},
+			// 4. Warning banner, hidden unless something needs the teacher.
 			Composite{
 				AssignTo: &a.banner,
 				Visible:  false,
@@ -174,9 +199,12 @@ func (a *app) build() error {
 					PushButton{AssignTo: &a.bannerConnect, Text: "Connection info…", OnClicked: a.showConnect},
 				},
 			},
-			// 4. The two lists
+			// 5. The two lists
 			HSplitter{
 				HandleWidth: 10,
+				// The capped controls row above is greedy too (see its MaxSize):
+				// this makes the lists, not gaps around the row, take the free height.
+				StretchFactor: 1000,
 				Children: []Widget{
 					GroupBox{
 						AssignTo: &a.appsBox,
@@ -221,8 +249,7 @@ func (a *app) build() error {
 							Composite{
 								Layout: HBox{MarginsZero: true, Spacing: 8},
 								Children: []Widget{
-									PushButton{AssignTo: &a.pcBtn, Text: "Block", Enabled: false, MinSize: Size{Width: 110},
-										OnClicked: a.togglePC, ToolTipText: "Block or unblock the selected computer (or double-click it)"},
+									Label{Text: "Ticked computers follow the rules.", TextColor: grayFg},
 									HSpacer{},
 									// Here rather than in the top row: it is how computers get into this list.
 									PushButton{Text: "Connection info…", OnClicked: a.showConnect,
@@ -231,17 +258,16 @@ func (a *app) build() error {
 							},
 							Label{AssignTo: &a.pcsHint, TextColor: grayFg, Visible: false},
 							TableView{
-								AssignTo:              &a.pcsTable,
-								Model:                 a.pcs,
-								OnItemActivated:       a.togglePC,
-								OnCurrentIndexChanged: a.updateButtons,
-								MultiSelection:        false,
-								LastColumnStretched:   true,
-								StyleCell:             a.stylePC,
+								AssignTo:            &a.pcsTable,
+								Model:               a.pcs,
+								CheckBoxes:          true,
+								MultiSelection:      false,
+								LastColumnStretched: true,
+								StyleCell:           a.stylePC,
+								ToolTipText:         "Tick a computer to apply the rules to it; untick it to let it run anything.",
 								Columns: []TableViewColumn{
-									{Title: "Computer", Width: 90},
-									{Title: "Connection", Width: 170},
-									{Title: "Rules"},
+									{Title: "Computer", Width: 110},
+									{Title: "Connection"},
 								},
 							},
 						},
@@ -258,21 +284,27 @@ func (a *app) build() error {
 		return err
 	}
 	a.classBtns = []*walk.PushButton{blockAll, unblockAll}
-	a.pcs.table = a.pcsTable
+	a.powerBtn.init()
 	if icon := appIcon(); icon != nil {
 		a.mw.SetIcon(icon)
 	}
 	a.mw.Closing().Attach(func(canceled *bool, reason walk.CloseReason) { a.stop() })
-	if b, err := walk.NewSolidColorBrush(amberBg); err == nil {
-		a.banner.SetBackground(b)
+	for c, bg := range map[*walk.Composite]walk.Color{a.banner: amberBg, a.powerBanner: redBg} {
+		if b, err := walk.NewSolidColorBrush(bg); err == nil {
+			c.SetBackground(b)
+		}
 	}
 
 	if !a.running() {
 		a.setCard(redBg, redFg, "Server is not running", a.startErr)
 		a.protectBtn.SetVisible(false)
-		for _, w := range []walk.Widget{a.modeCombo, a.appsTable, a.pcsTable, a.addBtn, a.classBtns[0], a.classBtns[1]} {
+		for _, w := range []walk.Widget{a.modeCombo, a.appsTable, a.pcsTable, a.addBtn} {
 			w.SetEnabled(false)
 		}
+		for _, b := range a.classBtns {
+			b.SetEnabled(false)
+		}
+		a.powerBtn.w.SetEnabled(false)
 		a.sbServer.SetText("Server stopped")
 	} else {
 		a.setCard(grayBg, grayFg, "Starting…", "")
@@ -281,6 +313,35 @@ func (a *app) build() error {
 	a.showBanner()
 	a.showLists(nil, nil, time.Time{})
 	return nil
+}
+
+// The setters below skip values that are already shown. walk repaints a
+// control on every Set call, even with an unchanged value, and the window is
+// refreshed every 3 s: without these checks it visibly flickers.
+
+// shown is the widget's own visibility flag. walk's Visible() asks
+// IsWindowVisible, which is also false whenever a parent is hidden (or the
+// window is not shown yet), so it cannot tell whether SetVisible is needed.
+func shown(w walk.Widget) bool {
+	return win.GetWindowLong(w.Handle(), win.GWL_STYLE)&win.WS_VISIBLE != 0
+}
+
+func setVisible(w walk.Widget, v bool) {
+	if shown(w) != v {
+		w.SetVisible(v)
+	}
+}
+
+func setButtonText(b *walk.PushButton, text string) {
+	if b.Text() != text {
+		b.SetText(text)
+	}
+}
+
+func setTitle(g *walk.GroupBox, title string) {
+	if g.Title() != title {
+		g.SetTitle(title)
+	}
 }
 
 func (a *app) setCard(bg, fg walk.Color, title, text string) {
@@ -293,10 +354,13 @@ func (a *app) setCard(bg, fg walk.Color, title, text string) {
 			a.cardBg, a.cardBgSet = bg, true
 		}
 	}
-	a.cardTitle.SetTextColor(fg)
+	if fg != a.cardFg {
+		a.cardTitle.SetTextColor(fg)
+		a.cardFg = fg
+	}
 	a.cardTitle.SetText(title)
 	a.cardText.SetText(text)
-	a.cardText.SetVisible(text != "")
+	setVisible(a.cardText, text != "")
 }
 
 // stop shuts the embedded server down; safe to call more than once.
@@ -331,6 +395,9 @@ func (a *app) fetch() snapshot {
 	if s.apps, s.err = a.client.Apps(); s.err != nil {
 		return s
 	}
+	if s.powerOn, s.err = a.client.PowerOn(); s.err != nil {
+		return s
+	}
 	s.pcs, s.now, s.err = a.client.Computers()
 	return s
 }
@@ -346,20 +413,24 @@ func (a *app) apply(s snapshot) {
 
 	a.updating = true
 	a.enabled = s.status.Enabled
+	a.powerOn = s.powerOn
 	for i, m := range modes {
 		if m == s.status.Mode {
-			a.modeCombo.SetCurrentIndex(i)
+			if a.modeCombo.CurrentIndex() != i {
+				a.modeCombo.SetCurrentIndex(i)
+			}
 			a.currentMode = m
 		}
 	}
 	apps := core.AppsForMode(s.apps, a.currentMode)
 	core.SortApps(apps)
 	a.apps.set(apps)
+	a.pcs.set(s.pcs, s.now)
 	a.updating = false
 
-	a.pcs.set(s.pcs, s.now)
 	a.showCard(apps, s.pcs)
 	a.showLists(apps, s.pcs, s.now)
+	a.showPower(apps, s.pcs)
 
 	switch last, ok := core.LastSync(s.pcs); {
 	case ok:
@@ -372,27 +443,33 @@ func (a *app) apply(s snapshot) {
 	a.updateButtons()
 }
 
+func countBlocked(pcs []guardian.Computer) int {
+	n := 0
+	for _, c := range pcs {
+		if c.Blocked {
+			n++
+		}
+	}
+	return n
+}
+
 // showCard explains in one sentence what the agents are doing right now.
 func (a *app) showCard(apps []guardian.Application, pcs []guardian.Computer) {
 	n := core.CountEnabled(apps)
-	blocked := 0
-	for _, c := range pcs {
-		if c.Blocked {
-			blocked++
-		}
-	}
-	on := fmt.Sprintf("%d of %d computers follow the rules.", blocked, len(pcs))
+	on := fmt.Sprintf("%d of %d computers follow the rules.", countBlocked(pcs), len(pcs))
 	if len(pcs) == 0 {
 		on = "No student computer has connected yet."
 	}
 	if !a.enabled {
 		a.setCard(amberBg, amberFg, "Protection is off",
 			"Students can run any program. The lists and blocks are kept for when you turn it back on.")
-		a.protectBtn.SetText("Turn protection on")
+		setButtonText(a.protectBtn, "Turn protection on")
 		return
 	}
 	var what string
 	switch {
+	case a.currentMode == "whitelist" && n == 0:
+		what = "No application is allowed: blocked computers can run only Windows itself."
 	case a.currentMode == "whitelist":
 		what = fmt.Sprintf("Only %s may run on blocked computers.", plural(n, "application"))
 	case n == 0:
@@ -401,10 +478,27 @@ func (a *app) showCard(apps []guardian.Application, pcs []guardian.Computer) {
 		what = fmt.Sprintf("%s closed on blocked computers.", capitalize(plural(n, "application")+pluralVerb(n)))
 	}
 	a.setCard(greenBg, greenFg, "Protection is on", what+"  "+on)
-	a.protectBtn.SetText("Turn protection off")
+	setButtonText(a.protectBtn, "Turn protection off")
 }
 
-// showLists sets the group titles and swaps an empty table for a hint.
+// showPower shows the shutdown banner while the power entry is off, and says
+// so plainly when the agents would not act on it.
+func (a *app) showPower(apps []guardian.Application, pcs []guardian.Computer) {
+	if a.powerOn {
+		a.powerBtn.set("Shut down…", dangerBg, dangerDown)
+		setVisible(a.powerBanner, false)
+		return
+	}
+	a.powerBtn.set("Allow start", safeBg, safeDown)
+	text := "⏻  Shutdown is on: blocked computers shut down within a minute, and again each time they are switched on."
+	if why := core.ShutdownBlocker(a.enabled, a.currentMode, core.CountEnabled(apps), countBlocked(pcs)); why != "" {
+		text += "\n     But: " + why
+	}
+	a.powerText.SetText(text)
+	setVisible(a.powerBanner, true)
+}
+
+// showLists sets the group titles and the hints shown above empty tables.
 func (a *app) showLists(apps []guardian.Application, pcs []guardian.Computer, now time.Time) {
 	title, hint := "Blocked applications", "No blocked applications yet.\nClick “+ Add application…” and type a process name, for example chrome.exe."
 	if a.currentMode == "whitelist" {
@@ -413,18 +507,19 @@ func (a *app) showLists(apps []guardian.Application, pcs []guardian.Computer, no
 	if !a.running() {
 		hint = "The server is not running."
 	}
-	a.appsBox.SetTitle(fmt.Sprintf("%s  (%d)", title, len(apps)))
+	setTitle(a.appsBox, fmt.Sprintf("%s  (%d)", title, len(apps)))
 	a.appsHint.SetText(hint)
 	// The tables stay visible even when empty: they are what takes the
 	// window's spare height, and their headers show what will appear there.
-	a.appsHint.SetVisible(len(apps) == 0)
+	setVisible(a.appsHint, len(apps) == 0)
 
-	a.pcsBox.SetTitle("Computers  (" + core.OnlineSummary(pcs, now) + ")")
-	a.pcsHint.SetText("No student computer has connected yet.\nClick “Connection info…” to see the two lines to put in each computer's agent.env.")
-	if !a.running() {
+	setTitle(a.pcsBox, fmt.Sprintf("Computers  (%s · %d blocked)", core.OnlineSummary(pcs, now), countBlocked(pcs)))
+	if a.running() {
+		a.pcsHint.SetText("No student computer has connected yet.\nClick “Connection info…” to see the two lines to put in each computer's agent.env.")
+	} else {
 		a.pcsHint.SetText("The server is not running.")
 	}
-	a.pcsHint.SetVisible(len(pcs) == 0)
+	setVisible(a.pcsHint, len(pcs) == 0)
 }
 
 // showBanner shows the most important warning, if any.
@@ -440,27 +535,16 @@ func (a *app) showBanner() {
 		connect = true
 	}
 	a.bannerText.SetText(text)
-	a.bannerConnect.SetVisible(connect)
-	a.banner.SetVisible(text != "")
+	setVisible(a.bannerConnect, connect)
+	setVisible(a.banner, text != "")
 }
 
-// updateButtons enables the list buttons only when they have something to act on.
+// updateButtons enables Remove only when an application is selected.
 func (a *app) updateButtons() {
 	i := a.appsTable.CurrentIndex()
-	a.removeBtn.SetEnabled(a.running() && i >= 0 && i < len(a.apps.rows))
-
-	j := a.pcsTable.CurrentIndex()
-	if !a.running() || j < 0 || j >= len(a.pcs.rows) {
-		a.pcBtn.SetEnabled(false)
-		a.pcBtn.SetText("Block")
-		return
-	}
-	c := a.pcs.rows[j]
-	a.pcBtn.SetEnabled(true)
-	if c.Blocked {
-		a.pcBtn.SetText(fmt.Sprintf("Unblock PC %d", c.Identity))
-	} else {
-		a.pcBtn.SetText(fmt.Sprintf("Block PC %d", c.Identity))
+	enabled := a.running() && i >= 0 && i < len(a.apps.rows)
+	if a.removeBtn.Enabled() != enabled {
+		a.removeBtn.SetEnabled(enabled)
 	}
 }
 
@@ -527,6 +611,28 @@ func (a *app) onModeChanged() {
 	a.setStatus(a.enabled, modes[i])
 }
 
+// togglePower starts the shutdown (after a confirmation) or ends it.
+func (a *app) togglePower() {
+	if !a.running() {
+		return
+	}
+	if !a.powerOn {
+		a.act(func() error { return a.client.SetPower(true) })
+		return
+	}
+	msg := "Shut down every blocked computer?\n\n" +
+		"They shut down within a minute, and again each time someone switches them on, " +
+		"until you click “Allow computers to start”.\n\n" +
+		"Unticked (unblocked) computers are not affected."
+	if why := core.ShutdownBlocker(a.enabled, a.currentMode, core.CountEnabled(a.apps.rows), countBlocked(a.pcs.rows)); why != "" {
+		msg += "\n\nNote: " + why
+	}
+	if walk.MsgBox(a.mw, "Shut down computers", msg, walk.MsgBoxYesNo|walk.MsgBoxIconWarning|walk.MsgBoxDefButton2) != walk.DlgCmdYes {
+		return
+	}
+	a.act(func() error { return a.client.SetPower(false) })
+}
+
 func (a *app) addApp() {
 	if !a.running() {
 		return
@@ -560,15 +666,6 @@ func (a *app) removeApp() {
 	a.act(func() error { return a.client.RemoveApp(app.Name, app.Mode) })
 }
 
-func (a *app) togglePC() {
-	i := a.pcsTable.CurrentIndex()
-	if !a.running() || i < 0 || i >= len(a.pcs.rows) {
-		return
-	}
-	c := a.pcs.rows[i]
-	a.act(func() error { return a.client.SetBlocked(c.Identity, !c.Blocked) })
-}
-
 func (a *app) styleApp(style *walk.CellStyle) {
 	row := style.Row()
 	if row < 0 || row >= len(a.apps.rows) {
@@ -581,38 +678,52 @@ func (a *app) styleApp(style *walk.CellStyle) {
 
 func (a *app) stylePC(style *walk.CellStyle) {
 	row := style.Row()
-	if row < 0 || row >= len(a.pcs.rows) {
+	if row < 0 || row >= len(a.pcs.rows) || style.Col() != 1 {
 		return
 	}
-	c := a.pcs.rows[row]
-	switch style.Col() {
-	case 1:
-		if core.IsOnline(c, a.pcs.now) {
-			style.TextColor = greenFg
-		} else {
-			style.TextColor = grayFg
+	if core.IsOnline(a.pcs.rows[row], a.pcs.now) {
+		style.TextColor = greenFg
+	} else {
+		style.TextColor = grayFg
+	}
+}
+
+// publish tells table what changed between two refreshes: a full reset only
+// when rows were added, removed or reordered, otherwise just the rows that
+// look different -- usually none, so nothing is repainted.
+func publish(m *walk.TableModelBase, table *walk.TableView, oldKeys, newKeys, oldVals, newVals []string) {
+	reset, changed := core.RowChanges(oldKeys, newKeys, oldVals, newVals)
+	if reset {
+		m.PublishRowsReset()
+		// A reset with an unchanged row count does not repaint by itself.
+		if table != nil {
+			table.Invalidate()
 		}
-	case 2:
-		if c.Blocked {
-			style.TextColor = redFg
-		}
+		return
+	}
+	for _, i := range changed {
+		m.PublishRowChanged(i)
 	}
 }
 
 // appModel backs the Applications table; the check box is "enabled".
 type appModel struct {
 	walk.TableModelBase
-	a    *app
-	rows []guardian.Application
+	a          *app
+	rows       []guardian.Application
+	keys, vals []string
 }
 
 func (m *appModel) set(rows []guardian.Application) {
+	keys := make([]string, len(rows))
+	vals := make([]string, len(rows))
 	m.rows = rows
-	m.PublishRowsReset()
-	// A reset with an unchanged row count does not repaint by itself.
-	if m.a.appsTable != nil {
-		m.a.appsTable.Invalidate()
+	for i := range rows {
+		keys[i] = m.ID(i).(string)
+		vals[i] = fmt.Sprintf("%s|%v", m.Value(i, 1), rows[i].Enabled)
 	}
+	publish(&m.TableModelBase, m.a.appsTable, m.keys, keys, m.vals, vals)
+	m.keys, m.vals = keys, vals
 }
 
 // ID keeps the selection across the 3 s refresh (walk.IDProvider).
@@ -656,21 +767,26 @@ func (m *appModel) SetChecked(row int, checked bool) error {
 	return nil
 }
 
-// pcModel backs the Computers table.
+// pcModel backs the Computers table; the check box is "blocked", i.e. the
+// computer follows the rules.
 type pcModel struct {
 	walk.TableModelBase
-	table *walk.TableView
-	rows  []guardian.Computer
-	now   time.Time
+	a          *app
+	rows       []guardian.Computer
+	now        time.Time
+	keys, vals []string
 }
 
 func (m *pcModel) set(rows []guardian.Computer, now time.Time) {
 	m.rows, m.now = rows, now
-	m.PublishRowsReset()
-	// A reset with an unchanged row count does not repaint by itself.
-	if m.table != nil {
-		m.table.Invalidate()
+	keys := make([]string, len(rows))
+	vals := make([]string, len(rows))
+	for i := range rows {
+		keys[i] = fmt.Sprint(rows[i].Identity)
+		vals[i] = fmt.Sprintf("%s|%v", m.Value(i, 1), rows[i].Blocked)
 	}
+	publish(&m.TableModelBase, m.a.pcsTable, m.keys, keys, m.vals, vals)
+	m.keys, m.vals = keys, vals
 }
 
 // ID keeps the selection across the 3 s refresh (walk.IDProvider).
@@ -688,21 +804,27 @@ func (m *pcModel) Value(row, col int) interface{} {
 		return ""
 	}
 	c := m.rows[row]
-	switch col {
-	case 0:
+	if col == 0 {
 		return fmt.Sprintf("PC %d", c.Identity)
-	case 1:
-		if core.IsOnline(c, m.now) {
-			return "● Online"
-		}
-		if d, ok := core.LastSeen(c, m.now); ok {
-			return "Offline · " + agoText(d)
-		}
-		return "Offline"
-	default:
-		if c.Blocked {
-			return "Blocked"
-		}
-		return "Free"
 	}
+	if core.IsOnline(c, m.now) {
+		return "● Online"
+	}
+	if d, ok := core.LastSeen(c, m.now); ok {
+		return "Offline · " + agoText(d)
+	}
+	return "Offline"
+}
+
+func (m *pcModel) Checked(row int) bool {
+	return row >= 0 && row < len(m.rows) && m.rows[row].Blocked
+}
+
+func (m *pcModel) SetChecked(row int, checked bool) error {
+	if m.a.updating || row < 0 || row >= len(m.rows) || !m.a.running() {
+		return nil
+	}
+	id := m.rows[row].Identity
+	m.a.act(func() error { return m.a.client.SetBlocked(id, checked) })
+	return nil
 }

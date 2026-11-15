@@ -125,3 +125,40 @@ func TestLastSeen(t *testing.T) {
 		t.Error("LastSeen accepted an unreadable time")
 	}
 }
+
+func TestRowChanges(t *testing.T) {
+	keys := []string{"1", "2", "3"}
+	if reset, ch := RowChanges(keys, keys, []string{"a", "b", "c"}, []string{"a", "b", "c"}); reset || len(ch) != 0 {
+		t.Errorf("unchanged rows: reset=%v changed=%v", reset, ch)
+	}
+	if reset, ch := RowChanges(keys, keys, []string{"a", "b", "c"}, []string{"a", "x", "c"}); reset || len(ch) != 1 || ch[0] != 1 {
+		t.Errorf("one row changed: reset=%v changed=%v", reset, ch)
+	}
+	if reset, _ := RowChanges(keys, []string{"1", "3", "2"}, []string{"a", "b", "c"}, []string{"a", "c", "b"}); !reset {
+		t.Error("reordered rows did not reset")
+	}
+	if reset, _ := RowChanges(keys, []string{"1", "2"}, []string{"a", "b", "c"}, []string{"a", "b"}); !reset {
+		t.Error("removed row did not reset")
+	}
+	if reset, _ := RowChanges(nil, nil, nil, nil); reset {
+		t.Error("two empty tables reset")
+	}
+}
+
+func TestShutdownBlocker(t *testing.T) {
+	if got := ShutdownBlocker(true, "blacklist", 1, 3); got != "" {
+		t.Errorf("all conditions met: %q", got)
+	}
+	if got := ShutdownBlocker(true, "whitelist", 0, 3); got != "" {
+		t.Errorf("whitelist with no apps still enforces: %q", got)
+	}
+	for _, c := range []struct {
+		enabled   bool
+		mode      string
+		apps, pcs int
+	}{{false, "blacklist", 1, 3}, {true, "blacklist", 0, 3}, {true, "whitelist", 2, 0}} {
+		if ShutdownBlocker(c.enabled, c.mode, c.apps, c.pcs) == "" {
+			t.Errorf("%+v: no reason given", c)
+		}
+	}
+}

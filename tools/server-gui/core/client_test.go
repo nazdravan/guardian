@@ -118,3 +118,22 @@ func TestClientWrongTokenErrors(t *testing.T) {
 		t.Error("Apps with a wrong admin token succeeded")
 	}
 }
+
+func TestClientPower(t *testing.T) {
+	c, _ := newTestClient(t)
+	if on, err := c.PowerOn(); err != nil || !on {
+		t.Fatalf("PowerOn on a new server = %v, %v; want true", on, err)
+	}
+	if err := c.SetPower(false); err != nil {
+		t.Fatal(err)
+	}
+	if on, err := c.PowerOn(); err != nil || on {
+		t.Fatalf("PowerOn after SetPower(false) = %v, %v; want false", on, err)
+	}
+	if err := c.SetPower(true); err != nil {
+		t.Fatal(err)
+	}
+	if on, _ := c.PowerOn(); !on {
+		t.Error("PowerOn still false after SetPower(true)")
+	}
+}
