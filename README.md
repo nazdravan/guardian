@@ -36,10 +36,10 @@
 
 <p align="center">
   <a href="https://www.youtube.com/watch?v=CkksD9YpDVw">
-    <img src="https://img.youtube.com/vi/CkksD9YpDVw/maxresdefault.jpg" alt="Guardian pe Windows: instalarea serverului și a agentului, pas cu pas" width="640" />
+    <img src="docs/assets/video-thumbnail.jpg" alt="Guardian pe Windows: instalarea serverului și a agentului, pas cu pas" width="640" />
   </a>
   <br />
-  <sub>Installing the server and the agent on Windows, step by step (in Romanian).</sub>
+  <a href="https://www.youtube.com/watch?v=CkksD9YpDVw"><b>▶ Watch on YouTube</b></a>: installing the server and the agent on Windows, step by step (in Romanian)
 </p>
 
 ---
