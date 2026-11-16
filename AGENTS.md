@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -137,7 +137,7 @@ only on first install, so an upgrade keeps the configured tokens. Agent and serv
 
 ## Rules
 
-- **Always update specs on code changes:** After any code change, update the corresponding files in `specs/` (`server.md`, `agent.md`, `api.md`) and this `CLAUDE.md` to keep documentation in sync. This includes API changes, schema changes, config changes, file structure changes, and build output paths.
+- **Always update specs on code changes:** After any code change, update the corresponding files in `specs/` (`server.md`, `agent.md`, `api.md`) and this `AGENTS.md` to keep documentation in sync. This includes API changes, schema changes, config changes, file structure changes, and build output paths.
 
 ## Notes
 
