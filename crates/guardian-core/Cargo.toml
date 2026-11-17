@@ -8,6 +8,10 @@ license.workspace = true
 [dependencies]
 guardian-proto.workspace = true
 thiserror.workspace = true
+ed25519-dalek.workspace = true
+getrandom.workspace = true
+uuid.workspace = true
+zeroize.workspace = true
 
 [lints]
 workspace = true
