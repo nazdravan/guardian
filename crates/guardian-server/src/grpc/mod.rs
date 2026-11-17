@@ -5,6 +5,7 @@ use std::sync::Arc;
 use guardian_proto::v1::admin_server::AdminServer;
 use guardian_proto::v1::auth_server::AuthServer;
 use guardian_proto::v1::control_server::ControlServer;
+use guardian_proto::v1::watch_server::WatchServer;
 
 use crate::state::AppState;
 
@@ -14,6 +15,7 @@ mod admin_users;
 pub mod auth;
 pub mod commands;
 pub mod control;
+pub mod watch;
 
 /// Largest decoded gRPC message (4 MiB).
 pub const MAX_MESSAGE: usize = 4 * 1024 * 1024;
@@ -31,7 +33,11 @@ pub fn router(state: Arc<AppState>) -> axum::Router {
             .max_decoding_message_size(MAX_MESSAGE),
     )
     .add_service(
-        ControlServer::new(control::ControlSvc::new(state)).max_decoding_message_size(MAX_MESSAGE),
+        ControlServer::new(control::ControlSvc::new(state.clone()))
+            .max_decoding_message_size(MAX_MESSAGE),
+    )
+    .add_service(
+        WatchServer::new(watch::WatchSvc::new(state)).max_decoding_message_size(MAX_MESSAGE),
     );
     if let Ok(r) = reflection {
         routes = routes.add_service(r);
