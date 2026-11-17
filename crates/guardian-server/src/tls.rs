@@ -41,10 +41,11 @@ fn ensure_self_signed(dir: &Path) -> Result<(), StartError> {
     }
     std::fs::create_dir_all(dir)?;
     let mut names = vec!["localhost".to_string(), "127.0.0.1".to_string()];
-    if let Ok(h) = gethostname::gethostname().into_string() {
-        if !h.is_empty() && !names.contains(&h) {
-            names.push(h);
-        }
+    if let Ok(h) = gethostname::gethostname().into_string()
+        && !h.is_empty()
+        && !names.contains(&h)
+    {
+        names.push(h);
     }
     let mut params = rcgen::CertificateParams::new(names).map_err(tls_err)?;
     let year = 1970 + i32::try_from(crate::db::now_unix() / 31_556_952).unwrap_or(56);

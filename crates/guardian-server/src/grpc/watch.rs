@@ -120,10 +120,10 @@ async fn translate(
             }
         }
         HubEvent::RoomChanged(r) => {
-            if view.sees_room(Some(r)) {
-                if let Some(room) = db::rooms::get(&state.db, r).await? {
-                    out.push(watch_event::Event::Room(room));
-                }
+            if view.sees_room(Some(r))
+                && let Some(room) = db::rooms::get(&state.db, r).await?
+            {
+                out.push(watch_event::Event::Room(room));
             }
         }
         HubEvent::RoomRemoved(r) => {

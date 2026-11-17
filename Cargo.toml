@@ -9,7 +9,7 @@ license = "MIT"
 version = "3.0.0-dev"
 
 [workspace.lints.rust]
-unsafe_code = "forbid"
+unsafe_code = "deny"
 
 [workspace.lints.clippy]
 unwrap_used = "deny"
@@ -61,6 +61,8 @@ zeroize = "1.9"
 tokio-tungstenite = { version = "0.30", features = ["rustls-tls-native-roots"] }
 tempfile = "3"
 assert_cmd = "2"
+predicates = "3"
+windows-service = "0.8"
 
 [profile.dev.package.argon2]
 opt-level = 3

@@ -2,6 +2,8 @@
 //! certificate pin, gRPC channels, the bearer-token interceptor, and the
 //! WebSocket connector for agents.
 
+#![forbid(unsafe_code)]
+
 use std::sync::Arc;
 
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};

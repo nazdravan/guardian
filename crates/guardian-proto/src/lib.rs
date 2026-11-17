@@ -1,5 +1,7 @@
 //! Generated protobuf types and gRPC stubs for Guardian 3.0.
 
+#![forbid(unsafe_code)]
+
 /// Package `guardian.v1`.
 #[allow(clippy::all, clippy::pedantic, missing_docs)]
 pub mod v1 {

@@ -1,6 +1,8 @@
 //! Guardian 3.0 server: gRPC for consoles and the CLI, WebSocket for agents,
 //! SQLite for state — all on one port.
 
+#![forbid(unsafe_code)]
+
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
@@ -113,9 +115,6 @@ pub async fn start(config: ServerConfig) -> Result<ServerHandle, StartError> {
         db::users::count(&mut conn).await?
     };
     let bootstrap = (users == 0).then(guardian_core::codes::generate_code);
-    if let Some(code) = &bootstrap {
-        tracing::warn!("bootstrap code: {code}");
-    }
     let batcher = batch::Batcher::spawn(db.clone());
     let state = Arc::new(AppState {
         db,
