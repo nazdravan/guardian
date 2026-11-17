@@ -1,5 +1,10 @@
 //! SQLite access: one writer connection, a separate read-only pool.
 
+pub mod profiles;
+pub mod sessions;
+pub mod settings;
+pub mod users;
+
 use std::path::Path;
 use std::time::Duration;
 
@@ -18,6 +23,13 @@ pub enum DbError {
     /// A migration failed.
     #[error("database migration: {0}")]
     Migrate(#[from] sqlx::migrate::MigrateError),
+}
+
+impl From<DbError> for tonic::Status {
+    fn from(e: DbError) -> Self {
+        tracing::error!("{e}");
+        tonic::Status::internal("internal database error")
+    }
 }
 
 /// The server database.
