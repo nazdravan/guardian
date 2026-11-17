@@ -6,6 +6,8 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+guardian-proto.workspace = true
+thiserror.workspace = true
 
 [lints]
 workspace = true

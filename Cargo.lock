@@ -200,6 +200,10 @@ dependencies = [
 [[package]]
 name = "guardian-core"
 version = "3.0.0-dev"
+dependencies = [
+ "guardian-proto",
+ "thiserror",
+]
 
 [[package]]
 name = "guardian-proto"
