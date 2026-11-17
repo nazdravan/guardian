@@ -83,20 +83,40 @@ impl Cli {
     }
 }
 
-fn init_logging(filter: &str) {
+/// Logs to stderr, or (as a Windows service, where stderr goes nowhere) appends
+/// to `file`.
+fn init_logging(filter: &str, file: Option<&std::path::Path>) {
     use std::io::IsTerminal;
     let filter = tracing_subscriber::EnvFilter::try_new(filter)
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_writer(std::io::stderr)
-        .with_ansi(std::io::stderr().is_terminal())
-        .try_init();
+    let opened = file.and_then(|path| {
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .ok()
+    });
+    let builder = tracing_subscriber::fmt().with_env_filter(filter);
+    let _ = match opened {
+        Some(f) => builder
+            .with_writer(std::sync::Mutex::new(f))
+            .with_ansi(false)
+            .try_init(),
+        None => builder
+            .with_writer(std::io::stderr)
+            .with_ansi(std::io::stderr().is_terminal())
+            .try_init(),
+    };
 }
 
-/// Starts the server, logs the lines operators look for, and runs until `stop` resolves.
+/// Starts the server, logs the lines operators look for, calls `ready` once it is
+/// listening, and runs until `stop` resolves.
 pub async fn run_until(
     cli: &Cli,
+    ready: impl FnOnce(),
     stop: impl std::future::Future<Output = ()>,
 ) -> Result<(), String> {
     let config = cli.config();
@@ -113,6 +133,7 @@ pub async fn run_until(
     if let Some(code) = handle.bootstrap_code() {
         tracing::warn!("bootstrap code: {code}");
     }
+    ready();
     stop.await;
     tracing::info!("shutting down");
     handle.shutdown().await;
@@ -143,7 +164,12 @@ async fn signal() {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    init_logging(&cli.log);
+    #[cfg(windows)]
+    let log_file =
+        service_windows::is_run(&cli).then(|| cli.config().data_dir.join("guardian-server.log"));
+    #[cfg(not(windows))]
+    let log_file: Option<PathBuf> = None;
+    init_logging(&cli.log, log_file.as_deref());
     #[cfg(windows)]
     if let Some(cmd) = &cli.command {
         return service_windows::dispatch(cmd, &cli);
@@ -155,7 +181,7 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    match rt.block_on(run_until(&cli, signal())) {
+    match rt.block_on(run_until(&cli, || {}, signal())) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             tracing::error!("{e}");

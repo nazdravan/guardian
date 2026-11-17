@@ -44,6 +44,45 @@ pub enum ServiceAction {
 
 static CLI: OnceLock<Cli> = OnceLock::new();
 
+/// Whether this invocation is `service run` (it logs to a file).
+pub fn is_run(cli: &Cli) -> bool {
+    matches!(
+        cli.command,
+        Some(ServiceCmd::Service {
+            action: ServiceAction::Run
+        })
+    )
+}
+
+/// Gives the data directory a protected ACL: SYSTEM and Administrators only
+/// (it holds the TLS private key and the database). SIDs avoid localized names.
+fn protect_data_dir(dir: &std::path::Path) -> Result<(), String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
+    let out = Command::new("icacls")
+        .arg(dir)
+        .args([
+            "/inheritance:r",
+            "/grant:r",
+            "*S-1-5-18:(OI)(CI)F",
+            "/grant:r",
+            "*S-1-5-32-544:(OI)(CI)F",
+            "/T",
+            "/C",
+            "/Q",
+        ])
+        .output()
+        .map_err(|e| format!("icacls: {e}"))?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "icacls {}: {}",
+            dir.display(),
+            String::from_utf8_lossy(&out.stdout).trim()
+        ))
+    }
+}
+
 /// Runs a `service` subcommand.
 pub fn dispatch(cmd: &ServiceCmd, cli: &Cli) -> ExitCode {
     let ServiceCmd::Service { action } = cmd;
@@ -103,6 +142,8 @@ fn firewall_delete() {
 
 fn install(cli: &Cli) -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let data_dir = cli.config().data_dir;
+    protect_data_dir(&data_dir)?;
     let mgr = ServiceManager::local_computer(
         None::<&str>,
         ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE,
@@ -139,7 +180,10 @@ fn install(cli: &Cli) -> Result<(), String> {
     svc.start::<&str>(&[])
         .map_err(|e| format!("start service: {e}"))?;
     println!("Service {SERVICE_NAME} installed and started.");
-    println!("The certificate SHA-256 and the bootstrap code are in the service log.");
+    println!(
+        "The certificate SHA-256 and the bootstrap code are in {}",
+        data_dir.join("guardian-server.log").display()
+    );
     Ok(())
 }
 
@@ -189,11 +233,19 @@ mod ffi {
 }
 
 fn status(state: ServiceState, accept: ServiceControlAccept) -> ServiceStatus {
+    status_with(state, accept, ServiceExitCode::Win32(0))
+}
+
+fn status_with(
+    state: ServiceState,
+    accept: ServiceControlAccept,
+    exit_code: ServiceExitCode,
+) -> ServiceStatus {
     ServiceStatus {
         service_type: ServiceType::OWN_PROCESS,
         current_state: state,
         controls_accepted: accept,
-        exit_code: ServiceExitCode::Win32(0),
+        exit_code,
         checkpoint: 0,
         wait_hint: Duration::from_secs(10),
         process_id: None,
@@ -222,18 +274,33 @@ fn service_main() {
         return;
     };
     let _ = h.set_service_status(status(
-        ServiceState::Running,
-        ServiceControlAccept::STOP | ServiceControlAccept::SHUTDOWN,
+        ServiceState::StartPending,
+        ServiceControlAccept::empty(),
     ));
+    // Running is reported only once the port is bound.
+    let ready = || {
+        let _ = h.set_service_status(status(
+            ServiceState::Running,
+            ServiceControlAccept::STOP | ServiceControlAccept::SHUTDOWN,
+        ));
+    };
     let result = tokio::runtime::Runtime::new()
         .map_err(|e| e.to_string())
         .and_then(|rt| {
-            rt.block_on(crate::run_until(&cli, async {
+            rt.block_on(crate::run_until(&cli, ready, async {
                 let _ = rx.await;
             }))
         });
-    if let Err(e) = result {
-        tracing::error!("{e}");
-    }
-    let _ = h.set_service_status(status(ServiceState::Stopped, ServiceControlAccept::empty()));
+    let exit = match result {
+        Ok(()) => ServiceExitCode::Win32(0),
+        Err(e) => {
+            tracing::error!("{e}");
+            ServiceExitCode::ServiceSpecific(1)
+        }
+    };
+    let _ = h.set_service_status(status_with(
+        ServiceState::Stopped,
+        ServiceControlAccept::empty(),
+        exit,
+    ));
 }

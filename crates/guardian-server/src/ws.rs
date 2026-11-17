@@ -105,18 +105,21 @@ async fn handshake(
                     "too many attempts, try again later",
                 ));
             }
-            let key = PublicKey::from_bytes(&e.public_key)
-                .map_err(|_| Reject::new("invalid_code", INVALID_CODE))?;
+            let invalid = || {
+                state.limiter.failed(peer.ip());
+                Reject::new("invalid_code", INVALID_CODE)
+            };
+            let key = PublicKey::from_bytes(&e.public_key).map_err(|_| invalid())?;
             if db::computers::by_key(&state.db, &key)
                 .await
                 .map_err(|_| Reject::new("protocol", "internal error"))?
                 .is_some()
             {
-                return Err(Reject::new("invalid_code", INVALID_CODE));
+                return Err(invalid());
             }
             let room = match db::codes::consume(&state.db, &e.code, CodeKind::Agent).await {
                 Ok(room) => room,
-                Err(CodeError::Invalid) => return Err(Reject::new("invalid_code", INVALID_CODE)),
+                Err(CodeError::Invalid) => return Err(invalid()),
                 Err(CodeError::Db(_)) => return Err(Reject::new("protocol", "internal error")),
             };
             let info = e.info.unwrap_or_default();

@@ -214,6 +214,7 @@ Servicii (împărțirea exactă e a builder-ului): `Auth` (login, logout, schimb
 
 ### 10.1 Aplicarea politicii
 - `free`: nu omoară nimic. `blacklist`: omoară procesele al căror **nume extras** e în listă (nu potrivire pe subșir al liniei de comandă). `whitelist`: omoară tot ce nu e în listă, în `whitelist.txt` local sau în lista proceselor de sistem protejate. Lista de procese protejate se aplică în ambele moduri (agentul însuși, worker-ul și procesele critice ale OS-ului nu sunt omorâte niciodată).
+- *Notă 2026-11-17 (review etapa 1), de rezolvat în etapa 2:* lista proceselor protejate se potrivește azi doar după nume, deci în modul Examen un program redenumit `svchost.exe` (sau `bash` pe Linux) n-ar fi omorât. Agentul trebuie să protejeze un nume doar când calea executabilului e în directorul sistemului (`%SystemRoot%`, `/usr`, `/bin`, …) sau în directorul Guardian; `decide` din `guardian-core` primește pentru asta rădăcinile de încredere.
 - **Detectarea proceselor e hibridă** (decizia proprietarului, 2026-11-17):
   - **Notificări de la sistem (calea principală)**: agentul e anunțat la pornirea fiecărui proces și aplică regula în milisecunde. Windows: ETW, providerul de procese al kernelului (de exemplu crate-ul `ferrisetw`). Linux: proc connector prin netlink (evenimente `exec`).
   - **Verificare completă de reconciliere**: la pornirea agentului, la fiecare schimbare a stării și periodic, implicit la ~10 s. Prinde evenimentele pierdute și procesele care rulau dinainte.

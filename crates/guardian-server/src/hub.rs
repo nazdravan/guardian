@@ -157,14 +157,19 @@ impl Hub {
 
 /// The state an agent enforces: its effective profile plus every profile (so local
 /// mode can switch between them), its room and the state version.
+///
+/// The version is read *before* the data: a concurrent change then yields data at
+/// least as new as the version, and that change's own push carries a higher
+/// version, so an agent that applies only newer versions always converges.
 pub async fn build_agent_state(db: &Db, computer_id: u64) -> Result<AgentState, DbError> {
+    let version = db::settings::state_version(db).await?;
     let row = db::computers::get(db, computer_id)
         .await?
         .ok_or(DbError::Sqlx(sqlx::Error::RowNotFound))?;
     let settings = db::settings::get(db).await?;
     let profiles = db::profiles::list(db).await?;
     Ok(AgentState {
-        version: db::settings::state_version(db).await?,
+        version,
         effective_profile_id: row.effective_profile(settings.default_profile_id),
         profiles: profiles.iter().map(|p| p.to_proto()).collect(),
         room_id: row.room_id.unwrap_or(0),

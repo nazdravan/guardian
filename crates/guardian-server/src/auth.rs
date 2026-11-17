@@ -2,14 +2,12 @@
 
 use std::collections::BTreeSet;
 use std::net::{IpAddr, SocketAddr};
-use std::num::NonZeroU32;
 use std::sync::OnceLock;
 
 use argon2::Argon2;
 use argon2::password_hash::{PasswordHasher, PasswordVerifier, phc::PasswordHash};
 use axum::extract::ConnectInfo;
 use base64::Engine;
-use governor::{DefaultKeyedRateLimiter, Quota};
 use guardian_core::random::random_bytes;
 use guardian_proto::v1::Role;
 use sha2::{Digest, Sha256};
@@ -154,40 +152,98 @@ pub fn client_ip<T>(req: &tonic::Request<T>) -> Option<IpAddr> {
         .map(|c| c.0.ip())
 }
 
-/// Per-IP limiter for authentication attempts.
+/// Per-IP limiter for **failed** authentication attempts (wrong password, wrong or
+/// used-up code). Successful attempts are free, so a whole room enrolling — or
+/// every teacher logging in — through one NAT or proxy address is never blocked,
+/// while guessing is limited to `per_minute` failures per IP per minute.
 pub struct RateLimiter {
-    inner: DefaultKeyedRateLimiter<IpAddr>,
+    per_minute: usize,
+    failures: std::sync::Mutex<
+        std::collections::HashMap<IpAddr, std::collections::VecDeque<std::time::Instant>>,
+    >,
 }
 
 impl std::fmt::Debug for RateLimiter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RateLimiter").finish_non_exhaustive()
+        f.debug_struct("RateLimiter")
+            .field("per_minute", &self.per_minute)
+            .finish_non_exhaustive()
     }
 }
 
+const WINDOW: std::time::Duration = std::time::Duration::from_secs(60);
+
 impl RateLimiter {
-    /// `per_minute` attempts per IP per minute (at least 1).
+    /// Allows `per_minute` failures per IP per minute (at least 1).
     pub fn new(per_minute: u32) -> RateLimiter {
-        let n = NonZeroU32::new(per_minute).unwrap_or(NonZeroU32::MIN);
         RateLimiter {
-            inner: governor::RateLimiter::keyed(Quota::per_minute(n)),
+            per_minute: usize::try_from(per_minute.max(1)).unwrap_or(usize::MAX),
+            failures: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
     }
 
-    /// `RESOURCE_EXHAUSTED` once `ip` is over its quota.
+    fn with<R>(
+        &self,
+        f: impl FnOnce(
+            &mut std::collections::HashMap<IpAddr, std::collections::VecDeque<std::time::Instant>>,
+        ) -> R,
+    ) -> R {
+        let mut g = match self.failures.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        f(&mut g)
+    }
+
+    /// `RESOURCE_EXHAUSTED` while `ip` has `per_minute` failures in the last minute.
     pub fn check(&self, ip: IpAddr) -> Result<(), Status> {
-        if self.inner.len() > 10_000 {
-            self.inner.retain_recent();
+        let now = std::time::Instant::now();
+        let blocked = self.with(|m| {
+            let Some(q) = m.get_mut(&ip) else {
+                return false;
+            };
+            while q.front().is_some_and(|t| now.duration_since(*t) >= WINDOW) {
+                q.pop_front();
+            }
+            if q.is_empty() {
+                m.remove(&ip);
+                return false;
+            }
+            q.len() >= self.per_minute
+        });
+        if blocked {
+            Err(Status::resource_exhausted(
+                "too many failed attempts, try again later",
+            ))
+        } else {
+            Ok(())
         }
-        self.inner
-            .check_key(&ip)
-            .map_err(|_| Status::resource_exhausted("too many attempts, try again later"))
     }
 
-    /// Checks the IP of a request (requests without a known peer share one bucket).
-    pub fn check_request<T>(&self, req: &tonic::Request<T>) -> Result<(), Status> {
-        self.check(client_ip(req).unwrap_or(IpAddr::from([0, 0, 0, 0])))
+    /// Records a failed attempt from `ip`.
+    pub fn failed(&self, ip: IpAddr) {
+        let now = std::time::Instant::now();
+        self.with(|m| {
+            if m.len() > 10_000 {
+                m.retain(|_, q| q.back().is_some_and(|t| now.duration_since(*t) < WINDOW));
+            }
+            let q = m.entry(ip).or_default();
+            q.push_back(now);
+            while q.len() > self.per_minute {
+                q.pop_front();
+            }
+        });
     }
+
+    /// [`RateLimiter::check`] for the peer of a request (unknown peers share one bucket).
+    pub fn check_request<T>(&self, req: &tonic::Request<T>) -> Result<(), Status> {
+        self.check(request_ip(req))
+    }
+}
+
+/// The peer IP of a request, or `0.0.0.0` when unknown.
+pub fn request_ip<T>(req: &tonic::Request<T>) -> IpAddr {
+    client_ip(req).unwrap_or(IpAddr::from([0, 0, 0, 0]))
 }
 
 /// Logins: `[a-z0-9._-]`, 3–32 characters.

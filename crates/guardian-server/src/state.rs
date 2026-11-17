@@ -140,8 +140,9 @@ impl AppState {
         self.hub.emit(HubEvent::ComputerRemoved(id));
     }
 
-    /// Commands waiting for `id` that its capabilities allow; they become
-    /// `delivered`, the rest `unsupported`.
+    /// Commands waiting for `id` that its capabilities allow; `pending` ones become
+    /// `delivered`, the rest `unsupported`. Already-`delivered`, unfinished ones are
+    /// included again (the previous connection may have died before reading them).
     pub async fn take_pending(
         &self,
         id: u64,
@@ -157,7 +158,7 @@ impl AppState {
                 }
             };
         let mut out = Vec::new();
-        for env in pending {
+        for (env, current) in pending {
             let supported = env
                 .command
                 .as_ref()
@@ -168,6 +169,13 @@ impl AppState {
             } else {
                 ResultStatus::ResultUnsupported
             };
+            if current == ResultStatus::ResultDelivered {
+                // Already sent once, maybe to a connection that died: send again.
+                if supported {
+                    out.push(env);
+                }
+                continue;
+            }
             if let Ok(true) = crate::db::commands::transition(
                 &self.db,
                 &env.id,

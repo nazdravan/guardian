@@ -57,7 +57,9 @@ is "Lecție". With no user yet, a one-time **bootstrap code** is generated and l
   `EnrollConsole`. Login errors never reveal which part was wrong; unknown logins still cost one argon2.
 - Sessions: 32 random bytes (base64url), stored as SHA-256, valid 7 days. The caller and their rooms are
   re-read from the database on every call.
-- Rate limit: `Init`, `Login`, `EnrollConsole` and agent enrollment, 10/min/IP.
+- Rate limit: `Init`, `Login`, `EnrollConsole` and agent enrollment are refused for an IP after **10
+  failed attempts** in the last minute; successful attempts do not count, so a room enrolling behind one
+  NAT/proxy address, or every teacher logging in, is never blocked.
 
 | RPC | Who |
 |---|---|
@@ -91,7 +93,11 @@ Every binary message is one protobuf frame (`AgentFrame` / `ServerFrame`), at mo
    strictly; failure → `unauthorized`.
 5. The connection replaces any previous one for that id (the old socket is closed; the computer never
    appears offline). The server sends `Welcome{state, pending, consoles, users}` first; `pending` holds
-   unexpired queued commands the agent's capabilities support (others become `unsupported`).
+   unexpired commands not yet finished for this computer that its capabilities support — `pending` ones
+   and also `delivered` ones (the previous connection may have died before reading them), so **agents
+   must dedupe commands by id**. Unsupported pending ones become `unsupported`.
+   `State.version` is read before the state's data, so an agent that applies only a strictly newer
+   version always converges on the latest policy.
 6. Loop: ping every 20 s, dropped after 60 s without traffic. `State` (on any policy change, with a
    higher `version`), `TrustUpdate` (consoles + authorized users: active admins and the room's teachers),
    `Command` are pushed; the agent sends `CommandResult` (`ok`, `failed`, `no_user`, `unsupported` only,
@@ -105,7 +111,8 @@ The list of peer computers in `Welcome` (spec §9.4) is not sent: nothing consum
 `SendCommand` targets a room or a list of computer ids. Arguments are validated (message title ≤ 100, text
 1–2000; program path 1–1024, ≤ 32 args; site URL `http(s)://` ≤ 2048; countdown 0–3600). TTL default
 600 s, max 86400 s. Per target: online with the feature → sent (`delivered`); online without it →
-`unsupported`; offline → `pending`. Every 10 s unfinished targets of expired commands become `expired`; an
+`unsupported`; offline → `pending` (re-checked right after the rows are written, in case the agent
+connected meanwhile). Every 10 s unfinished targets of expired commands become `expired`; an
 agent that comes back later does not get them.
 
 ## Watch
@@ -141,8 +148,12 @@ contain `listening on <addr>`, `certificate sha256: <hex>` and, until the first 
 - Linux: `packaging/server-linux-v3/guardian-server.service` (user `guardian`, `StateDirectory=guardian`,
   `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, `CAP_NET_BIND_SERVICE`) and
   `install.sh` (idempotent; prints the pin and bootstrap code from the journal).
-- Windows: `service install` registers `GuardianServer` (automatic start, LocalSystem) with the current
-  options and adds the firewall rule `Guardian Server` for the port; `uninstall` removes both.
+- Windows: `service install` gives the data directory a protected ACL (SYSTEM + Administrators only),
+  registers `GuardianServer` (automatic start, LocalSystem) with the current options and adds the
+  firewall rule `Guardian Server` for the port; `uninstall` removes service and rule. As a service the
+  log goes to `<data dir>\guardian-server.log` (pin and bootstrap code are there); the service reports
+  Running only once the port is bound, and stops with a non-zero exit code if start-up fails. Install
+  from an admin-only folder such as `Program Files`: the service runs that exe as LocalSystem.
 
 ## Retention
 

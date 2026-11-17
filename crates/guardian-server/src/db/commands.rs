@@ -45,23 +45,30 @@ pub async fn create(
     Ok(())
 }
 
-/// Unexpired commands still `pending` for a computer, oldest first.
+/// Unexpired, unfinished (`pending` or `delivered`) commands for a computer, oldest
+/// first, with their current status. `delivered` ones may never have reached the
+/// agent (a dying connection), so they are sent again; agents dedupe by id.
 pub async fn pending_for(
     db: &Db,
     computer_id: u64,
     now: i64,
-) -> Result<Vec<CommandEnvelope>, DbError> {
-    let payloads: Vec<Vec<u8>> = sqlx::query_scalar(
-        "SELECT c.payload FROM command_targets t JOIN commands c ON c.id = t.command_id \
-         WHERE t.computer_id = ? AND t.status = 'pending' AND c.expires_at > ? ORDER BY c.created_at, c.id",
+) -> Result<Vec<(CommandEnvelope, ResultStatus)>, DbError> {
+    let rows: Vec<(Vec<u8>, String)> = sqlx::query_as(
+        "SELECT c.payload, t.status FROM command_targets t JOIN commands c ON c.id = t.command_id \
+         WHERE t.computer_id = ? AND t.status IN ('pending', 'delivered') AND c.expires_at > ? \
+         ORDER BY c.created_at, c.id",
     )
     .bind(id_i64(computer_id))
     .bind(now)
     .fetch_all(&db.read)
     .await?;
-    Ok(payloads
+    Ok(rows
         .iter()
-        .filter_map(|p| CommandEnvelope::decode(p.as_slice()).ok())
+        .filter_map(|(p, st)| {
+            CommandEnvelope::decode(p.as_slice())
+                .ok()
+                .map(|e| (e, status_from_name(st)))
+        })
         .collect())
 }
 

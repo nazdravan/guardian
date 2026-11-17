@@ -185,6 +185,41 @@ impl ControlSvc {
             }
             self.state.command_event(&env.id, *id, *st, String::new());
         }
+        // A target that was offline when planned may have connected (and finished
+        // its Welcome) before the rows were written: deliver it now. The
+        // compare-and-set makes this and `take_pending` mutually exclusive.
+        for (id, st) in &plan {
+            if *st != ResultStatus::ResultPending {
+                continue;
+            }
+            let Some(caps) = hub.capabilities(*id) else {
+                continue;
+            };
+            let to = if caps.contains(feature.name) {
+                ResultStatus::ResultDelivered
+            } else {
+                ResultStatus::ResultUnsupported
+            };
+            if db::commands::transition(
+                &self.state.db,
+                &env.id,
+                *id,
+                ResultStatus::ResultPending,
+                to,
+            )
+            .await?
+            {
+                if to == ResultStatus::ResultDelivered {
+                    hub.send(
+                        *id,
+                        ServerFrame {
+                            msg: Some(server_frame::Msg::Command(env.clone())),
+                        },
+                    );
+                }
+                self.state.command_event(&env.id, *id, to, String::new());
+            }
+        }
         self.state.audit(
             Some(caller.user_id),
             "SendCommand",

@@ -12,8 +12,8 @@ use guardian_proto::v1::{
 use tonic::{Request, Response, Status};
 
 use crate::auth::{
-    SESSION_TTL_SECS, caller_from_request, hash_password_async, new_session_token, validate_login,
-    validate_password, verify_password_async,
+    SESSION_TTL_SECS, caller_from_request, hash_password_async, new_session_token, request_ip,
+    validate_login, validate_password, verify_password_async,
 };
 use crate::batch::{AuditEntry, AuditSource};
 use crate::db::codes::{CodeError, CodeKind, INVALID_CODE};
@@ -51,11 +51,13 @@ impl AuthSvc {
 impl Auth for AuthSvc {
     async fn init(&self, req: Request<InitRequest>) -> Result<Response<LoginResponse>, Status> {
         self.state.limiter.check_request(&req)?;
+        let ip = request_ip(&req);
         let r = req.into_inner();
         let Some(expected) = self.state.bootstrap_code() else {
             return Err(Status::failed_precondition("server is already initialized"));
         };
         if !codes_equal(&normalize_code(&r.bootstrap_code), &expected) {
+            self.state.limiter.failed(ip);
             return Err(Status::permission_denied("wrong bootstrap code"));
         }
         validate_login(&r.login)?;
@@ -91,13 +93,17 @@ impl Auth for AuthSvc {
 
     async fn login(&self, req: Request<LoginRequest>) -> Result<Response<LoginResponse>, Status> {
         self.state.limiter.check_request(&req)?;
+        let ip = request_ip(&req);
         let r = req.into_inner();
         let user = db::users::by_login(&self.state.db, &r.login).await?;
         let ok =
             verify_password_async(r.password, user.as_ref().map(|u| u.password_hash.clone())).await;
         match user {
             Some(u) if ok && u.active => Ok(Response::new(self.session_for(&u).await?)),
-            _ => Err(Status::unauthenticated(BAD_LOGIN)),
+            _ => {
+                self.state.limiter.failed(ip);
+                Err(Status::unauthenticated(BAD_LOGIN))
+            }
         }
     }
 
@@ -150,13 +156,17 @@ impl Auth for AuthSvc {
         req: Request<EnrollConsoleRequest>,
     ) -> Result<Response<EnrollConsoleResponse>, Status> {
         self.state.limiter.check_request(&req)?;
+        let ip = request_ip(&req);
         let r = req.into_inner();
         let key = PublicKey::from_bytes(&r.public_key)
             .map_err(|_| Status::invalid_argument("public_key must be a 32-byte ed25519 key"))?;
         let name = crate::grpc::admin::valid_name(&r.name, "console")?;
         match db::codes::consume(&self.state.db, &r.code, CodeKind::Console).await {
             Ok(_) => {}
-            Err(CodeError::Invalid) => return Err(Status::permission_denied(INVALID_CODE)),
+            Err(CodeError::Invalid) => {
+                self.state.limiter.failed(ip);
+                return Err(Status::permission_denied(INVALID_CODE));
+            }
             Err(CodeError::Db(e)) => return Err(e.into()),
         }
         let id = db::consoles::insert(&self.state.db, &key, &name)
