@@ -83,6 +83,37 @@ impl TestServer {
         }
     }
 
+    /// Stops the server and starts it again on the same data directory **and port**
+    /// (for clients that must reconnect to the same address). Retries the bind for 2 s.
+    #[allow(clippy::panic)]
+    pub async fn restart_same_port(self) -> TestServer {
+        let TestServer {
+            handle,
+            dir,
+            mut config,
+        } = self;
+        let addr = handle.local_addr();
+        handle.shutdown().await;
+        config.listen = addr;
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            match start(config.clone()).await {
+                Ok(handle) => {
+                    return TestServer {
+                        handle,
+                        dir,
+                        config,
+                    };
+                }
+                Err(e) if std::time::Instant::now() < deadline => {
+                    let _ = e;
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+                Err(e) => panic!("restart on {addr}: {e}"),
+            }
+        }
+    }
+
     /// The config the server runs with.
     pub fn config(&self) -> &ServerConfig {
         &self.config

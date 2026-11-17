@@ -4,5 +4,6 @@
 #![forbid(unsafe_code)]
 
 pub mod config;
+pub mod conn;
 pub mod engine;
 pub mod store;
