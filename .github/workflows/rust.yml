@@ -8,6 +8,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "deny.toml"
+      - "packaging/agent-linux-v3/**"
       - ".github/workflows/rust.yml"
   pull_request:
     paths:
@@ -16,6 +17,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "deny.toml"
+      - "packaging/agent-linux-v3/**"
       - ".github/workflows/rust.yml"
 
 env:
@@ -32,7 +34,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      # The real server + agent + CLI test needs every binary.
+      - run: cargo build --workspace --bins
       - run: cargo test --workspace --all-features
+      - run: cargo test -p guardian-agent --test real_linux
+      - run: sh -n packaging/agent-linux-v3/install.sh && sh -n packaging/agent-linux-v3/uninstall.sh
+      # As root: the proc connector delivers real exec events.
+      - run: sudo -E env "PATH=$PATH" cargo test -p guardian-platform --features testing --test linux -- --include-ignored
 
   windows:
     runs-on: windows-latest
@@ -43,8 +51,19 @@ jobs:
           targets: i686-pc-windows-msvc
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --workspace
-      - run: cargo test -p guardian-core -p guardian-proto
-      - run: cargo build -p guardian-core -p guardian-proto --target i686-pc-windows-msvc
+      # GitHub's Windows runners are administrators, so the ETW test runs too.
+      - run: cargo test -p guardian-core -p guardian-proto -p guardian-platform --features guardian-platform/testing -- --include-ignored
+      - run: cargo test -p guardian-agent
+      - run: cargo build --release -p guardian-agent -p guardian-worker --target x86_64-pc-windows-msvc
+      - run: cargo build --release -p guardian-agent -p guardian-worker --target i686-pc-windows-msvc
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agent-windows
+          path: |
+            target/x86_64-pc-windows-msvc/release/guardian-agent.exe
+            target/x86_64-pc-windows-msvc/release/guardian-worker.exe
+            target/i686-pc-windows-msvc/release/guardian-agent.exe
+            target/i686-pc-windows-msvc/release/guardian-worker.exe
 
   deny:
     runs-on: ubuntu-latest
