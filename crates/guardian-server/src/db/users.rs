@@ -131,3 +131,101 @@ pub fn to_proto(u: &UserRow, rooms: &BTreeSet<i64>) -> pb::User {
         room_ids: rooms.iter().copied().collect(),
     }
 }
+
+/// Why an update was refused.
+#[derive(Debug, PartialEq, Eq)]
+pub enum UpdateOutcome {
+    /// Applied.
+    Updated,
+    /// No such user.
+    NotFound,
+    /// It would leave no active admin.
+    LastAdmin,
+}
+
+/// Applies role / active / password changes in one transaction, refusing to remove
+/// the last active admin. Disabling or a new password deletes all sessions.
+pub async fn update(
+    db: &Db,
+    id: i64,
+    role: Option<Role>,
+    active: Option<bool>,
+    password_hash: Option<&str>,
+) -> Result<UpdateOutcome, DbError> {
+    let mut tx = db.write.begin().await?;
+    let cur: Option<(String, i64)> = sqlx::query_as("SELECT role, active FROM users WHERE id = ?")
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?;
+    let Some((cur_role, cur_active)) = cur else {
+        return Ok(UpdateOutcome::NotFound);
+    };
+    let was_admin = cur_role == "admin" && cur_active != 0;
+    let new_role: String = role.map_or(cur_role.clone(), |r| role_name(r).to_string());
+    let new_active = active.unwrap_or(cur_active != 0);
+    let stays_admin = new_role == "admin" && new_active;
+    if was_admin && !stays_admin {
+        let admins: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM users WHERE role = 'admin' AND active = 1")
+                .fetch_one(&mut *tx)
+                .await?;
+        if admins <= 1 {
+            return Ok(UpdateOutcome::LastAdmin);
+        }
+    }
+    sqlx::query("UPDATE users SET role = ?, active = ? WHERE id = ?")
+        .bind(&new_role)
+        .bind(i64::from(new_active))
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    if let Some(h) = password_hash {
+        sqlx::query("UPDATE users SET password_hash = ? WHERE id = ?")
+            .bind(h)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    if !new_active || password_hash.is_some() {
+        sqlx::query("DELETE FROM sessions WHERE user_id = ?")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
+    Ok(UpdateOutcome::Updated)
+}
+
+/// Replaces a user's rooms; `Ok(false)` (and nothing changed) if a room does not exist.
+pub async fn set_rooms(db: &Db, user_id: i64, rooms: &[i64]) -> Result<bool, DbError> {
+    let mut tx = db.write.begin().await?;
+    for r in rooms {
+        let n: i64 = sqlx::query_scalar("SELECT count(*) FROM rooms WHERE id = ?")
+            .bind(r)
+            .fetch_one(&mut *tx)
+            .await?;
+        if n == 0 {
+            return Ok(false);
+        }
+    }
+    sqlx::query("DELETE FROM user_rooms WHERE user_id = ?")
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+    for r in rooms {
+        sqlx::query("INSERT OR IGNORE INTO user_rooms(user_id, room_id) VALUES (?, ?)")
+            .bind(user_id)
+            .bind(r)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
+    Ok(true)
+}
+
+/// All `(user_id, room_id)` assignments.
+pub async fn all_rooms(db: &Db) -> Result<Vec<(i64, i64)>, DbError> {
+    Ok(sqlx::query_as("SELECT user_id, room_id FROM user_rooms")
+        .fetch_all(&db.read)
+        .await?)
+}

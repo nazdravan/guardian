@@ -2,39 +2,14 @@
 
 use guardian_proto::v1 as pb;
 use guardian_proto::v1::{
-    ComputerIdRequest, ComputerList, ConsoleList, CreateEnrollCodeRequest, CreateUserRequest,
-    Empty, EnrollCode, IdRequest, SetUserRoomsRequest, UpdateComputerRequest, UpdateUserRequest,
-    User, UserList,
+    ComputerIdRequest, ComputerList, ConsoleList, CreateEnrollCodeRequest, Empty, EnrollCode,
+    IdRequest, UpdateComputerRequest,
 };
 use tonic::{Request, Response, Status};
 
 use super::admin::AdminSvc;
 
 impl AdminSvc {
-    pub(crate) async fn list_users_impl(
-        &self,
-        _r: Request<Empty>,
-    ) -> Result<Response<UserList>, Status> {
-        Err(Status::unimplemented("ListUsers"))
-    }
-    pub(crate) async fn create_user_impl(
-        &self,
-        _r: Request<CreateUserRequest>,
-    ) -> Result<Response<User>, Status> {
-        Err(Status::unimplemented("CreateUser"))
-    }
-    pub(crate) async fn update_user_impl(
-        &self,
-        _r: Request<UpdateUserRequest>,
-    ) -> Result<Response<User>, Status> {
-        Err(Status::unimplemented("UpdateUser"))
-    }
-    pub(crate) async fn set_user_rooms_impl(
-        &self,
-        _r: Request<SetUserRoomsRequest>,
-    ) -> Result<Response<User>, Status> {
-        Err(Status::unimplemented("SetUserRooms"))
-    }
     pub(crate) async fn list_computers_impl(
         &self,
         _r: Request<Empty>,

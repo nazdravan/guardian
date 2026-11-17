@@ -2,14 +2,19 @@
 
 use std::time::Duration;
 
+use guardian_proto::v1::admin_client::AdminClient;
 use guardian_proto::v1::auth_client::AuthClient;
-use guardian_proto::v1::{InitRequest, LoginRequest};
+use guardian_proto::v1::{
+    CreateUserRequest, Empty, InitRequest, LoginRequest, Role, SetUserRoomsRequest,
+};
 use tonic::transport::Channel;
 
 use crate::{ServerConfig, ServerHandle, TlsMode, start};
 
 /// Password of the admin created by [`TestServer::admin_token`].
 pub const ADMIN_PASSWORD: &str = "admin-password";
+/// Password of teachers created by [`TestServer::teacher_token`].
+pub const TEACHER_PASSWORD: &str = "teacher-password";
 
 /// A request carrying `authorization: Bearer <token>`.
 pub fn req<T>(token: &str, msg: T) -> tonic::Request<T> {
@@ -131,6 +136,56 @@ impl TestServer {
         .expect("login")
         .into_inner()
         .token
+    }
+
+    /// Creates (or reuses) teacher `login` with password [`TEACHER_PASSWORD`], assigns
+    /// exactly `rooms`, and returns a fresh session token.
+    pub async fn teacher_token(&self, login: &str, rooms: &[i64]) -> String {
+        let admin = self.admin_token().await;
+        let mut a = AdminClient::new(self.grpc().await);
+        let existing = a
+            .list_users(req(&admin, Empty {}))
+            .await
+            .expect("list users")
+            .into_inner()
+            .users
+            .into_iter()
+            .find(|u| u.login == login);
+        let id = match existing {
+            Some(u) => u.id,
+            None => {
+                a.create_user(req(
+                    &admin,
+                    CreateUserRequest {
+                        login: login.into(),
+                        password: TEACHER_PASSWORD.into(),
+                        role: Role::Teacher as i32,
+                    },
+                ))
+                .await
+                .expect("create teacher")
+                .into_inner()
+                .id
+            }
+        };
+        a.set_user_rooms(req(
+            &admin,
+            SetUserRoomsRequest {
+                user_id: id,
+                room_ids: rooms.to_vec(),
+            },
+        ))
+        .await
+        .expect("set rooms");
+        AuthClient::new(self.grpc().await)
+            .login(LoginRequest {
+                login: login.into(),
+                password: TEACHER_PASSWORD.into(),
+            })
+            .await
+            .expect("teacher login")
+            .into_inner()
+            .token
     }
 
     /// A read-only pool on the server's database file.

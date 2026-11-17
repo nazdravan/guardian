@@ -9,6 +9,7 @@ use crate::state::AppState;
 
 pub mod admin;
 mod admin_stubs;
+mod admin_users;
 pub mod auth;
 
 /// Largest decoded gRPC message (4 MiB).
