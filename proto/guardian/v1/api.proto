@@ -1,0 +1,284 @@
+syntax = "proto3";
+
+package guardian.v1;
+
+import "guardian/v1/common.proto";
+
+message Empty {}
+
+message IdRequest {
+  int64 id = 1;
+}
+
+// ---- Auth ----
+
+service Auth {
+  rpc Init(InitRequest) returns (LoginResponse);
+  rpc Login(LoginRequest) returns (LoginResponse);
+  rpc Logout(Empty) returns (Empty);
+  rpc ChangePassword(ChangePasswordRequest) returns (Empty);
+  rpc WhoAmI(Empty) returns (User);
+  rpc EnrollConsole(EnrollConsoleRequest) returns (EnrollConsoleResponse);
+}
+
+message InitRequest {
+  string bootstrap_code = 1;
+  string login = 2;
+  string password = 3;
+}
+
+message LoginRequest {
+  string login = 1;
+  string password = 2;
+}
+
+message LoginResponse {
+  string token = 1;
+  int64 expires_at_unix = 2;
+  User user = 3;
+}
+
+message ChangePasswordRequest {
+  string old_password = 1;
+  string new_password = 2;
+}
+
+message EnrollConsoleRequest {
+  string code = 1;
+  bytes public_key = 2;
+  string name = 3;
+}
+
+message EnrollConsoleResponse {
+  int64 console_id = 1;
+}
+
+enum Role {
+  ROLE_UNSPECIFIED = 0;
+  ROLE_ADMIN = 1;
+  ROLE_TEACHER = 2;
+}
+
+message User {
+  int64 id = 1;
+  string login = 2;
+  Role role = 3;
+  bool active = 4;
+  repeated int64 room_ids = 5;
+}
+
+message Room {
+  int64 id = 1;
+  string name = 2;
+  int64 active_profile_id = 3;
+}
+
+// Ids set to 0 mean "none".
+message Computer {
+  uint64 id = 1;
+  string name = 2;
+  string hostname = 3;
+  string os = 4;
+  string agent_version = 5;
+  int64 room_id = 6;
+  int64 exception_profile_id = 7;
+  repeated string lan_addresses = 8;
+  bool online = 9;
+  int64 last_seen_unix = 10;
+  int64 effective_profile_id = 11;
+}
+
+// ---- Admin ----
+
+service Admin {
+  rpc ListUsers(Empty) returns (UserList);
+  rpc CreateUser(CreateUserRequest) returns (User);
+  rpc UpdateUser(UpdateUserRequest) returns (User);
+  rpc SetUserRooms(SetUserRoomsRequest) returns (User);
+  rpc ListRooms(Empty) returns (RoomList);
+  rpc CreateRoom(CreateRoomRequest) returns (Room);
+  rpc RenameRoom(RenameRoomRequest) returns (Room);
+  rpc DeleteRoom(IdRequest) returns (Empty);
+  rpc ListProfiles(Empty) returns (ProfileList);
+  // The id is ignored.
+  rpc CreateProfile(Profile) returns (Profile);
+  rpc UpdateProfile(Profile) returns (Profile);
+  rpc DeleteProfile(IdRequest) returns (Empty);
+  rpc ListComputers(Empty) returns (ComputerList);
+  rpc UpdateComputer(UpdateComputerRequest) returns (Computer);
+  rpc RevokeComputer(ComputerIdRequest) returns (Empty);
+  rpc CreateEnrollCode(CreateEnrollCodeRequest) returns (EnrollCode);
+  rpc ListConsoles(Empty) returns (ConsoleList);
+  rpc RevokeConsole(IdRequest) returns (Empty);
+  rpc GetSettings(Empty) returns (Settings);
+  rpc UpdateSettings(Settings) returns (Settings);
+}
+
+message UserList {
+  repeated User users = 1;
+}
+
+message CreateUserRequest {
+  string login = 1;
+  string password = 2;
+  Role role = 3;
+}
+
+message UpdateUserRequest {
+  int64 id = 1;
+  optional Role role = 2;
+  optional bool active = 3;
+  optional string new_password = 4;
+}
+
+message SetUserRoomsRequest {
+  int64 user_id = 1;
+  repeated int64 room_ids = 2;
+}
+
+message RoomList {
+  repeated Room rooms = 1;
+}
+
+message CreateRoomRequest {
+  string name = 1;
+}
+
+message RenameRoomRequest {
+  int64 id = 1;
+  string name = 2;
+}
+
+message ProfileList {
+  repeated Profile profiles = 1;
+}
+
+message ComputerList {
+  repeated Computer computers = 1;
+}
+
+// 0 for room_id / exception_profile_id removes the value.
+message UpdateComputerRequest {
+  uint64 id = 1;
+  optional string name = 2;
+  optional int64 room_id = 3;
+  optional int64 exception_profile_id = 4;
+}
+
+message ComputerIdRequest {
+  uint64 id = 1;
+}
+
+enum EnrollCodeKind {
+  ENROLL_CODE_KIND_UNSPECIFIED = 0;
+  ENROLL_AGENT = 1;
+  ENROLL_CONSOLE = 2;
+}
+
+message CreateEnrollCodeRequest {
+  EnrollCodeKind kind = 1;
+  int64 room_id = 2;
+  uint32 max_uses = 3;
+  uint32 ttl_seconds = 4;
+}
+
+message EnrollCode {
+  string code = 1;
+  int64 expires_at_unix = 2;
+  uint32 max_uses = 3;
+  EnrollCodeKind kind = 4;
+  int64 room_id = 5;
+}
+
+message Console {
+  int64 id = 1;
+  string name = 2;
+  bytes public_key = 3;
+  int64 created_at_unix = 4;
+}
+
+message ConsoleList {
+  repeated Console consoles = 1;
+}
+
+message Settings {
+  int64 default_profile_id = 1;
+  uint32 retention_days = 2;
+}
+
+// ---- Control ----
+
+service Control {
+  rpc SetRoomProfile(SetRoomProfileRequest) returns (Room);
+  rpc SendCommand(SendCommandRequest) returns (SendCommandResponse);
+  rpc GetCommand(GetCommandRequest) returns (CommandStatus);
+}
+
+message SetRoomProfileRequest {
+  int64 room_id = 1;
+  int64 profile_id = 2;
+}
+
+message ComputerIds {
+  repeated uint64 ids = 1;
+}
+
+message SendCommandRequest {
+  oneof target {
+    int64 room_id = 1;
+    ComputerIds computers = 2;
+  }
+  Command command = 3;
+  uint32 ttl_seconds = 4;
+}
+
+message SendCommandResponse {
+  string command_id = 1;
+}
+
+message GetCommandRequest {
+  string command_id = 1;
+}
+
+message ComputerResult {
+  uint64 computer_id = 1;
+  ResultStatus status = 2;
+  string detail = 3;
+}
+
+message CommandStatus {
+  string command_id = 1;
+  Command command = 2;
+  int64 created_at_unix = 3;
+  int64 expires_at_unix = 4;
+  repeated ComputerResult results = 5;
+}
+
+// ---- Watch ----
+
+service Watch {
+  rpc Watch(Empty) returns (stream WatchEvent);
+}
+
+message Snapshot {
+  repeated Room rooms = 1;
+  repeated Computer computers = 2;
+  repeated Profile profiles = 3;
+}
+
+message ComputerResultEvent {
+  string command_id = 1;
+  ComputerResult result = 2;
+}
+
+message WatchEvent {
+  oneof event {
+    Snapshot snapshot = 1;
+    // Online / offline / updated.
+    Computer computer = 2;
+    Room room = 3;
+    ComputerResultEvent command_result = 4;
+    uint64 computer_removed = 5;
+    int64 room_removed = 6;
+  }
+}

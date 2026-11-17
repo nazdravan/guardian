@@ -1,0 +1,88 @@
+syntax = "proto3";
+
+package guardian.v1;
+
+import "guardian/v1/common.proto";
+
+// Every binary WebSocket message is exactly one protobuf-encoded frame.
+
+message SystemInfo {
+  string hostname = 1;
+  // "windows" | "linux"
+  string os = 2;
+  string agent_version = 3;
+  repeated string lan_addresses = 4;
+}
+
+message Enroll {
+  string code = 1;
+  bytes public_key = 2;
+  SystemInfo info = 3;
+}
+
+message Hello {
+  uint64 computer_id = 1;
+  uint32 protocol_version = 2;
+  // Feature names.
+  repeated string capabilities = 3;
+  SystemInfo info = 4;
+}
+
+message ChallengeResponse {
+  bytes signature = 1;
+}
+
+message AgentFrame {
+  oneof msg {
+    Enroll enroll = 1;
+    Hello hello = 2;
+    ChallengeResponse challenge_response = 3;
+    CommandResult command_result = 4;
+  }
+}
+
+message Enrolled {
+  uint64 computer_id = 1;
+}
+
+message Challenge {
+  // 32 bytes.
+  bytes nonce = 1;
+}
+
+message TrustedConsole {
+  int64 console_id = 1;
+  bytes public_key = 2;
+}
+
+message AuthorizedUser {
+  int64 user_id = 1;
+  string login = 2;
+}
+
+message Welcome {
+  AgentState state = 1;
+  repeated CommandEnvelope pending = 2;
+  repeated TrustedConsole consoles = 3;
+  // Admins plus the teachers of the computer's room.
+  repeated AuthorizedUser users = 4;
+}
+
+// Codes: invalid_code, unauthorized, protocol, rate_limited, revoked.
+message ServerError {
+  string code = 1;
+  string message = 2;
+}
+
+message ServerFrame {
+  oneof msg {
+    Enrolled enrolled = 1;
+    Challenge challenge = 2;
+    Welcome welcome = 3;
+    AgentState state = 4;
+    CommandEnvelope command = 5;
+    ServerError error = 6;
+    // Only consoles + users are set.
+    Welcome trust_update = 7;
+  }
+}
