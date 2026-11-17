@@ -140,13 +140,121 @@ impl AppState {
         self.hub.emit(HubEvent::ComputerRemoved(id));
     }
 
-    /// Commands waiting for `id` (Task 13).
-    pub async fn take_pending(&self, _id: u64) -> Vec<guardian_proto::v1::CommandEnvelope> {
-        Vec::new()
+    /// Commands waiting for `id` that its capabilities allow; they become
+    /// `delivered`, the rest `unsupported`.
+    pub async fn take_pending(
+        &self,
+        id: u64,
+        caps: &std::collections::BTreeSet<String>,
+    ) -> Vec<guardian_proto::v1::CommandEnvelope> {
+        use guardian_proto::v1::ResultStatus;
+        let pending =
+            match crate::db::commands::pending_for(&self.db, id, crate::db::now_unix()).await {
+                Ok(p) => p,
+                Err(e) => {
+                    tracing::error!("pending commands for {id}: {e}");
+                    return Vec::new();
+                }
+            };
+        let mut out = Vec::new();
+        for env in pending {
+            let supported = env
+                .command
+                .as_ref()
+                .and_then(|c| c.kind.as_ref())
+                .is_some_and(|k| caps.contains(guardian_core::feature::feature_of(k).name));
+            let to = if supported {
+                ResultStatus::ResultDelivered
+            } else {
+                ResultStatus::ResultUnsupported
+            };
+            if let Ok(true) = crate::db::commands::transition(
+                &self.db,
+                &env.id,
+                id,
+                ResultStatus::ResultPending,
+                to,
+            )
+            .await
+            {
+                self.command_event(&env.id, id, to, String::new());
+                if supported {
+                    out.push(env);
+                }
+            }
+        }
+        out
     }
 
-    /// A result reported by an agent (Task 13).
-    pub async fn command_result_from_agent(&self, _id: u64, _r: guardian_proto::v1::CommandResult) {
+    /// Emits a `CommandResult` hub event.
+    pub fn command_event(
+        &self,
+        command_id: &str,
+        computer_id: u64,
+        status: guardian_proto::v1::ResultStatus,
+        detail: String,
+    ) {
+        if let Ok(command_id) = uuid::Uuid::parse_str(command_id) {
+            self.hub.emit(HubEvent::CommandResult {
+                command_id,
+                computer_id,
+                status,
+                detail,
+            });
+        }
+    }
+
+    /// A result reported by an agent: accepted only for a command targeting it and
+    /// only with an agent-side status.
+    pub async fn command_result_from_agent(&self, id: u64, r: guardian_proto::v1::CommandResult) {
+        use guardian_proto::v1::ResultStatus;
+        let Ok(command_id) = uuid::Uuid::parse_str(&r.command_id) else {
+            tracing::warn!("computer {id}: result for malformed command id");
+            return;
+        };
+        let status = ResultStatus::try_from(r.status).unwrap_or(ResultStatus::Unspecified);
+        if !matches!(
+            status,
+            ResultStatus::ResultOk
+                | ResultStatus::ResultFailed
+                | ResultStatus::ResultNoUser
+                | ResultStatus::ResultUnsupported
+        ) {
+            tracing::warn!("computer {id}: ignoring result with status {status:?}");
+            return;
+        }
+        match crate::db::commands::is_target(&self.db, &r.command_id, id).await {
+            Ok(true) => {}
+            Ok(false) => {
+                tracing::warn!("computer {id}: ignoring result for a command not sent to it");
+                return;
+            }
+            Err(e) => {
+                tracing::error!("{e}");
+                return;
+            }
+        }
+        let detail: String = r.detail.chars().take(1000).collect();
+        self.batcher
+            .command_result(command_id, id, status, detail.clone());
+        self.command_event(&r.command_id, id, status, detail);
+    }
+
+    /// Marks expired targets and tells `Watch`.
+    pub async fn expire_commands(&self) {
+        match crate::db::commands::expire_due(&self.db, crate::db::now_unix()).await {
+            Ok(rows) => {
+                for (c, id) in rows {
+                    self.hub.emit(HubEvent::CommandResult {
+                        command_id: c,
+                        computer_id: id,
+                        status: guardian_proto::v1::ResultStatus::ResultExpired,
+                        detail: String::new(),
+                    });
+                }
+            }
+            Err(e) => tracing::error!("expiring commands: {e}"),
+        }
     }
 
     /// Queues an audit entry for an action through the server.

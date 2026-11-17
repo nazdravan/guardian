@@ -27,6 +27,10 @@ pub enum HubEvent {
         command_id: Uuid,
         /// Target.
         computer_id: u64,
+        /// New status.
+        status: guardian_proto::v1::ResultStatus,
+        /// Agent-supplied detail.
+        detail: String,
     },
     /// A user's rooms, role or active flag changed.
     UserRoomsChanged(i64),

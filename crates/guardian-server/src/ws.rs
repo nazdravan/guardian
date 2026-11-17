@@ -195,12 +195,16 @@ async fn handshake(
     }))
 }
 
-async fn welcome(state: &AppState, id: u64) -> Result<Welcome, db::DbError> {
+async fn welcome(
+    state: &AppState,
+    id: u64,
+    caps: &BTreeSet<String>,
+) -> Result<Welcome, db::DbError> {
     let agent_state = build_agent_state(&state.db, id).await?;
     let (consoles, users) = build_trust(&state.db, id).await?;
     Ok(Welcome {
         state: Some(agent_state),
-        pending: state.take_pending(id).await,
+        pending: state.take_pending(id, caps).await,
         consoles,
         users,
     })
@@ -230,10 +234,11 @@ async fn run(socket: WebSocket, state: Arc<AppState>, peer: SocketAddr) {
         tracing::warn!("computer {id}: storing system info failed: {e}");
     }
     let (tx, mut rx) = mpsc::channel(QUEUE);
+    let caps = auth.caps.clone();
     let token = state.hub.register(id, auth.caps, tx);
     // Welcome is written straight to the socket, before anything the hub queued;
     // queued states carry versions the agent compares against.
-    let ok = match welcome(&state, id).await {
+    let ok = match welcome(&state, id, &caps).await {
         Ok(w) => send(&mut sink, &frame(server_frame::Msg::Welcome(w)))
             .await
             .is_ok(),

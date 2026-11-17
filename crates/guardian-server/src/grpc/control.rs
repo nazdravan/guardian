@@ -76,19 +76,3 @@ impl Control for ControlSvc {
         self.get_command_impl(req).await
     }
 }
-
-impl ControlSvc {
-    async fn send_command_impl(
-        &self,
-        _req: Request<SendCommandRequest>,
-    ) -> Result<Response<SendCommandResponse>, Status> {
-        Err(Status::unimplemented("SendCommand"))
-    }
-
-    async fn get_command_impl(
-        &self,
-        _req: Request<GetCommandRequest>,
-    ) -> Result<Response<CommandStatus>, Status> {
-        Err(Status::unimplemented("GetCommand"))
-    }
-}

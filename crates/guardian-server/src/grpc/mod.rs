@@ -12,6 +12,7 @@ pub mod admin;
 mod admin_computers;
 mod admin_users;
 pub mod auth;
+pub mod commands;
 pub mod control;
 
 /// Largest decoded gRPC message (4 MiB).

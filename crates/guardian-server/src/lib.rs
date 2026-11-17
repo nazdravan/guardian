@@ -81,6 +81,22 @@ impl ServerHandle {
     }
 }
 
+/// Runs `f` every `every` until shutdown.
+async fn periodic<F, Fut>(mut shutdown: watch::Receiver<bool>, every: std::time::Duration, f: F)
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = ()>,
+{
+    let mut tick = tokio::time::interval(every);
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        tokio::select! {
+            _ = tick.tick() => f().await,
+            _ = shutdown.changed() => return,
+        }
+    }
+}
+
 /// Opens the database, seeds it on first start, and starts listening.
 pub async fn start(config: ServerConfig) -> Result<ServerHandle, StartError> {
     if config.tls != TlsMode::InsecurePlaintext {
@@ -113,12 +129,19 @@ pub async fn start(config: ServerConfig) -> Result<ServerHandle, StartError> {
         .route("/agent/ws", axum::routing::get(ws::handler))
         .with_state(state.clone())
         .merge(grpc::router(state.clone()));
-    let serve = tokio::spawn(net::serve(listener, router, rx));
+    let serve = tokio::spawn(net::serve(listener, router, rx.clone()));
+    let expiry = tokio::spawn(periodic(rx, config.expiry_interval, {
+        let state = state.clone();
+        move || {
+            let state = state.clone();
+            async move { state.expire_commands().await }
+        }
+    }));
     Ok(ServerHandle {
         addr,
         state,
         cert_sha256: None,
         shutdown: tx,
-        tasks: vec![serve],
+        tasks: vec![serve, expiry],
     })
 }
