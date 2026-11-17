@@ -8,6 +8,7 @@ pub mod config;
 pub mod conn;
 pub mod engine;
 pub mod store;
+pub mod worker;
 
 pub use agent::{
     AGENT_VERSION, AgentError, AgentHandle, AgentOptions, AgentStatus, CAPABILITIES, enroll, run,

@@ -14,6 +14,7 @@ use crate::config::{AgentConfig, AgentPaths};
 use crate::conn::{self, ConnConfig, ConnEvent, Connection};
 use crate::engine::{Engine, EngineConfig, EngineMode, Policy};
 use crate::store::{self, SeenIds, StoreError};
+use crate::worker::{WorkerManager, WorkerOptions};
 
 /// Features this agent supports (stage 4 adds them).
 pub const CAPABILITIES: &[&str] = &[];
@@ -48,6 +49,8 @@ pub struct AgentOptions {
     pub engine: EngineConfig,
     /// First reconnect delay (1 s in production).
     pub backoff_min: Duration,
+    /// The worker in the user session (`None` = no worker).
+    pub worker: Option<WorkerOptions>,
 }
 
 impl std::fmt::Debug for AgentOptions {
@@ -77,6 +80,8 @@ pub struct AgentStatus {
     pub kills: u64,
     /// The server revoked this computer.
     pub revoked: bool,
+    /// A worker is connected from the user session.
+    pub worker_connected: bool,
 }
 
 /// Registers this computer with `code` and writes the config (key created if needed).
@@ -118,6 +123,7 @@ pub struct AgentHandle {
     live: Arc<Mutex<Live>>,
     engine: Engine,
     conn: Arc<Connection>,
+    worker: Option<WorkerManager>,
     stop: watch::Sender<bool>,
     task: JoinHandle<()>,
 }
@@ -156,6 +162,7 @@ impl AgentHandle {
             engine_mode: self.engine.mode(),
             kills: stats.kills,
             revoked,
+            worker_connected: self.worker.as_ref().is_some_and(WorkerManager::connected),
         }
     }
 
@@ -168,6 +175,9 @@ impl AgentHandle {
     pub async fn shutdown(self) {
         let _ = self.stop.send(true);
         let _ = self.task.await;
+        if let Some(w) = self.worker {
+            w.shutdown().await;
+        }
         if let Ok(c) = Arc::try_unwrap(self.conn) {
             c.shutdown().await;
         }
@@ -229,10 +239,14 @@ pub async fn run(opts: AgentOptions) -> Result<AgentHandle, AgentError> {
             }
         }
     });
+    let worker = opts
+        .worker
+        .map(|w| WorkerManager::spawn(opts.platform.clone(), w, engine.clone()));
     Ok(AgentHandle {
         live,
         engine,
         conn,
+        worker,
         stop,
         task,
     })

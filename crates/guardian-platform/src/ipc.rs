@@ -178,11 +178,11 @@ impl IpcListener {
             #[cfg(unix)]
             IpcEndpoint::Unix(path) => {
                 use std::os::unix::fs::PermissionsExt;
-                if let Some(dir) = path.parent() {
-                    if !dir.exists() {
-                        std::fs::create_dir_all(dir)?;
-                        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o711))?;
-                    }
+                if let Some(dir) = path.parent()
+                    && !dir.exists()
+                {
+                    std::fs::create_dir_all(dir)?;
+                    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o711))?;
                 }
                 match std::fs::remove_file(path) {
                     Ok(()) => {}

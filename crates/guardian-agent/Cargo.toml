@@ -22,6 +22,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [dev-dependencies]
+guardian-worker.workspace = true
 guardian-platform = { workspace = true, features = ["testing"] }
 guardian-server = { workspace = true, features = ["testing"] }
 tempfile.workspace = true

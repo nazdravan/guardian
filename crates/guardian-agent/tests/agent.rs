@@ -32,6 +32,7 @@ fn opts(paths: &AgentPaths, f: &Arc<FakePlatform>) -> AgentOptions {
         platform: f.clone(),
         engine: engine_cfg(),
         backoff_min: Duration::from_millis(100),
+        worker: None,
     }
 }
 
