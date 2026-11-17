@@ -28,3 +28,45 @@ impl AppState {
         self.bootstrap.lock().ok().and_then(|g| g.clone())
     }
 }
+
+/// Which agents a policy change affects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scope {
+    /// Every connected agent.
+    All,
+    /// Agents in one room.
+    Room(i64),
+    /// One agent.
+    Computer(u64),
+}
+
+impl AppState {
+    /// Pushes new state to the agents in `scope` (wired to the hub in Task 12).
+    pub async fn policy_changed(&self, _scope: Scope) {}
+
+    /// Pushes trusted consoles and users to every agent (wired in Task 12).
+    pub async fn trust_changed(&self) {}
+
+    /// A user's rooms, role or active flag changed (wired in Task 14).
+    pub async fn user_rooms_changed(&self, _user_id: i64) {}
+
+    /// A room was renamed or switched profile (Watch event, Task 14).
+    pub fn room_changed(&self, _room_id: i64) {}
+
+    /// A room was deleted (Watch event, Task 14).
+    pub fn room_removed(&self, _room_id: i64) {}
+
+    /// A computer was revoked (wired in Task 11).
+    pub async fn computer_revoked(&self, _id: u64) {}
+
+    /// Queues an audit entry for an action through the server.
+    pub fn audit(&self, actor: Option<i64>, action: &str, target: String, detail: String) {
+        self.batcher.audit(crate::batch::AuditEntry {
+            actor_user_id: actor,
+            action: action.into(),
+            target,
+            detail,
+            source: crate::batch::AuditSource::Server,
+        });
+    }
+}

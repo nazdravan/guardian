@@ -1,6 +1,7 @@
 //! SQLite access: one writer connection, a separate read-only pool.
 
 pub mod profiles;
+pub mod rooms;
 pub mod sessions;
 pub mod settings;
 pub mod users;
@@ -29,6 +30,13 @@ impl From<DbError> for tonic::Status {
     fn from(e: DbError) -> Self {
         tracing::error!("{e}");
         tonic::Status::internal("internal database error")
+    }
+}
+
+impl DbError {
+    /// `true` for a UNIQUE constraint violation.
+    pub fn is_unique_violation(&self) -> bool {
+        matches!(self, DbError::Sqlx(e) if e.as_database_error().is_some_and(|d| d.is_unique_violation()))
     }
 }
 

@@ -100,7 +100,7 @@ pub enum ProfileError {
     #[error(transparent)]
     Mode(#[from] UnknownMode),
     /// One of the application names is invalid.
-    #[error("invalid application name {name:?}: {err}")]
+    #[error("invalid application name \"{name}\": {err}")]
     App {
         /// The offending raw name.
         name: String,
