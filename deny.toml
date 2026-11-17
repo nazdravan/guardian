@@ -4,6 +4,13 @@ all-features = true
 [advisories]
 version = 2
 yanked = "deny"
+ignore = [
+    # SQLite bundled by libsqlite3-sys < 0.39; sqlx-sqlite 0.9 caps it below 0.38.
+    # Exposure needs a database/-wal file written by a less trusted party; the server
+    # only opens its own guardian.db in its private data directory. Drop this when
+    # sqlx allows libsqlite3-sys >= 0.39.
+    { id = "RUSTSEC-2026-0459", reason = "server opens only its own database; sqlx pins libsqlite3-sys < 0.38" },
+]
 
 [licenses]
 version = 2

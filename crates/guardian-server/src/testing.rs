@@ -37,6 +37,11 @@ pub struct TestServer {
 
 #[allow(clippy::expect_used)]
 impl TestServer {
+    /// Server with a self-signed certificate (clients pin it).
+    pub async fn start_tls() -> TestServer {
+        TestServer::start_with(|c| c.tls = TlsMode::SelfSigned).await
+    }
+
     /// Plaintext server with test timeouts.
     pub async fn start() -> TestServer {
         TestServer::start_with(|_| {}).await
@@ -106,9 +111,7 @@ impl TestServer {
 
     /// A gRPC channel to the server.
     pub async fn grpc(&self) -> Channel {
-        Channel::from_shared(self.url())
-            .expect("url")
-            .connect()
+        guardian_client::connect(&self.url(), self.pin().as_deref())
             .await
             .expect("connect")
     }
@@ -330,7 +333,13 @@ mod sim {
 #[allow(clippy::expect_used)]
 impl SimAgent {
     async fn open(server: &TestServer) -> Result<sim::Ws, guardian_proto::v1::ServerError> {
-        tokio_tungstenite::connect_async(server.ws_url())
+        let connector = match server.pin() {
+            Some(pin) => {
+                Some(guardian_client::ws_connector(Some(&pin)).map_err(|_| sim::closed())?)
+            }
+            None => None,
+        };
+        tokio_tungstenite::connect_async_tls_with_config(server.ws_url(), None, false, connector)
             .await
             .map(|(ws, _)| ws)
             .map_err(|_| sim::closed())

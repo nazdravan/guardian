@@ -19,6 +19,7 @@ pub mod retention;
 pub mod state;
 #[cfg(feature = "testing")]
 pub mod testing;
+pub mod tls;
 pub mod ws;
 
 pub use config::{ServerConfig, TlsMode};
@@ -100,10 +101,11 @@ where
 
 /// Opens the database, seeds it on first start, and starts listening.
 pub async fn start(config: ServerConfig) -> Result<ServerHandle, StartError> {
-    if config.tls != TlsMode::InsecurePlaintext {
-        return Err(StartError::Tls("TLS is not implemented yet".into()));
-    }
     std::fs::create_dir_all(&config.data_dir)?;
+    let tls = tls::load(&config.tls, &config.data_dir)?;
+    if tls.is_none() {
+        tracing::warn!("TLS is off: tokens and agent traffic travel in clear text");
+    }
     let db = db::Db::open(&config.data_dir.join("guardian.db")).await?;
     db::profiles::seed_defaults(&db).await?;
     let users = {
@@ -131,7 +133,11 @@ pub async fn start(config: ServerConfig) -> Result<ServerHandle, StartError> {
         .with_state(state.clone())
         .merge(grpc::router(state.clone()));
     let rx_ret = rx.clone();
-    let serve = tokio::spawn(net::serve(listener, router, rx.clone()));
+    let (acceptor, cert_sha256) = match tls {
+        Some((cfg, pin)) => (Some(tokio_rustls::TlsAcceptor::from(cfg)), Some(pin)),
+        None => (None, None),
+    };
+    let serve = tokio::spawn(net::serve(listener, router, acceptor, rx.clone()));
     let expiry = tokio::spawn(periodic(rx, config.expiry_interval, {
         let state = state.clone();
         move || {
@@ -160,7 +166,7 @@ pub async fn start(config: ServerConfig) -> Result<ServerHandle, StartError> {
     Ok(ServerHandle {
         addr,
         state,
-        cert_sha256: None,
+        cert_sha256,
         shutdown: tx,
         tasks: vec![serve, expiry, retention],
     })

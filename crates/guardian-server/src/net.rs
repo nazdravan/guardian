@@ -11,15 +11,20 @@ use hyper_util::service::TowerToHyperService;
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 use tokio::task::JoinSet;
+use tokio_rustls::TlsAcceptor;
 use tower::ServiceExt;
 
 /// How long open connections get to finish after shutdown starts.
 const GRACE: Duration = Duration::from_secs(2);
 
-/// Serves `router` on `listener` until `shutdown` turns `true`.
+/// A TLS handshake must finish within this.
+const TLS_HANDSHAKE: Duration = Duration::from_secs(10);
+
+/// Serves `router` on `listener` (TLS if `tls` is set) until `shutdown` turns `true`.
 pub async fn serve(
     listener: TcpListener,
     router: axum::Router,
+    tls: Option<TlsAcceptor>,
     mut shutdown: watch::Receiver<bool>,
 ) {
     let mut conns = JoinSet::new();
@@ -35,7 +40,21 @@ pub async fn serve(
                     }
                 };
                 let _ = stream.set_nodelay(true);
-                conns.spawn(serve_conn(stream, peer, router.clone(), shutdown.clone()));
+                let (router, sd) = (router.clone(), shutdown.clone());
+                match tls.clone() {
+                    None => {
+                        conns.spawn(serve_conn(stream, peer, router, sd));
+                    }
+                    Some(acceptor) => {
+                        conns.spawn(async move {
+                            match tokio::time::timeout(TLS_HANDSHAKE, acceptor.accept(stream)).await {
+                                Ok(Ok(s)) => serve_conn(s, peer, router, sd).await,
+                                Ok(Err(e)) => tracing::debug!("tls handshake with {peer} failed: {e}"),
+                                Err(_) => tracing::debug!("tls handshake with {peer} timed out"),
+                            }
+                        });
+                    }
+                }
             }
             _ = shutdown.changed() => break,
             Some(_) = conns.join_next(), if !conns.is_empty() => {}
