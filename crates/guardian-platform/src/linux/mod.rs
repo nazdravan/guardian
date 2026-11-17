@@ -8,6 +8,7 @@ use guardian_proto::v1::SystemInfo;
 
 use crate::{Platform, PlatformError, ProcessEventSource, UserSession};
 
+mod events;
 mod procs;
 
 /// The Linux platform.
@@ -32,7 +33,7 @@ impl Platform for Linux {
     }
 
     fn process_events(&self) -> Result<Box<dyn ProcessEventSource>, PlatformError> {
-        Err(PlatformError::Unsupported)
+        Ok(Box::new(events::ProcConnector::start()?))
     }
 
     fn trusted_roots(&self) -> TrustedRoots {

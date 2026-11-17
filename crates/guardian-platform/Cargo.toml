@@ -20,11 +20,15 @@ tokio.workspace = true
 tracing.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
+netlink-sys.workspace = true
 nix.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 ferrisetw.workspace = true
 windows.workspace = true
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+nix.workspace = true
 
 [dev-dependencies]
 guardian-platform = { path = ".", features = ["testing"] }

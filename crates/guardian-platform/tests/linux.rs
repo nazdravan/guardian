@@ -98,3 +98,39 @@ fn trusted_roots_cover_usr_not_home() {
     assert!(!r.contains(Os::Linux, std::path::Path::new("/home/elev/bash")));
     assert!(!r.contains(Os::Linux, std::path::Path::new("/tmp/bash")));
 }
+
+#[tokio::test]
+#[ignore = "needs root (CAP_NET_ADMIN)"]
+async fn exec_events_are_reported_when_root() {
+    let p = guardian_platform::current();
+    let mut src = p.process_events().unwrap();
+    let mut child = Command::new("/bin/true").spawn().unwrap();
+    let want = child.id();
+    let _ = child.wait();
+    let got = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if let Ok(ev) = src.next().await
+                && ev.pid == want
+            {
+                return ev.pid;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(got, want);
+}
+
+/// Without root the source either works (kernels ≥ 6.6 let anyone listen) or
+/// fails cleanly with `AccessDenied`, so the agent can fall back to scanning.
+#[test]
+fn non_root_works_or_gets_access_denied() {
+    if nix::unistd::geteuid().is_root() {
+        return;
+    }
+    let p = guardian_platform::current();
+    match p.process_events() {
+        Ok(_) | Err(PlatformError::AccessDenied) => {}
+        Err(e) => panic!("unexpected error without root: {e:?}"),
+    }
+}
