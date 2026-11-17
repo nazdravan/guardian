@@ -196,3 +196,309 @@ impl TestServer {
         sqlx::SqlitePool::connect_with(opts).await.expect("open db")
     }
 }
+
+/// A simulated agent speaking the real WebSocket protocol.
+pub struct SimAgent {
+    id: u64,
+    key: guardian_core::keys::KeyPair,
+    welcome: guardian_proto::v1::Welcome,
+    frames: tokio::sync::mpsc::UnboundedReceiver<guardian_proto::v1::ServerFrame>,
+    out: tokio::sync::mpsc::UnboundedSender<sim::Out>,
+    reader: tokio::task::JoinHandle<()>,
+}
+
+impl std::fmt::Debug for SimAgent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SimAgent").field("id", &self.id).finish()
+    }
+}
+
+mod sim {
+    use futures_util::{SinkExt, StreamExt};
+    use guardian_core::feature::PROTOCOL_VERSION;
+    use guardian_core::keys::{AuthContext, KeyPair};
+    use guardian_proto::v1::{
+        AgentFrame, ChallengeResponse, Enroll, Hello, ServerError, ServerFrame, SystemInfo,
+        Welcome, agent_frame, server_frame,
+    };
+    use prost::Message as _;
+    use tokio_tungstenite::tungstenite::Message;
+
+    pub(super) enum Out {
+        Frame(AgentFrame),
+        Close,
+        Silence,
+    }
+
+    pub(super) type Ws = tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >;
+
+    pub(super) fn closed() -> ServerError {
+        ServerError {
+            code: "closed".into(),
+            message: "connection closed".into(),
+        }
+    }
+
+    pub(super) fn info() -> SystemInfo {
+        SystemInfo {
+            hostname: "sim-pc".into(),
+            os: "linux".into(),
+            agent_version: "3.0.0-sim".into(),
+            lan_addresses: vec!["127.0.0.1".into()],
+        }
+    }
+
+    pub(super) async fn send(ws: &mut Ws, f: agent_frame::Msg) -> Result<(), ServerError> {
+        ws.send(Message::Binary(
+            AgentFrame { msg: Some(f) }.encode_to_vec().into(),
+        ))
+        .await
+        .map_err(|_| closed())
+    }
+
+    pub(super) async fn recv(ws: &mut Ws) -> Result<server_frame::Msg, ServerError> {
+        loop {
+            match ws.next().await {
+                Some(Ok(Message::Binary(b))) => {
+                    let f = ServerFrame::decode(b.as_ref()).map_err(|_| closed())?;
+                    return match f.msg {
+                        Some(server_frame::Msg::Error(e)) => Err(e),
+                        Some(m) => Ok(m),
+                        None => Err(closed()),
+                    };
+                }
+                Some(Ok(Message::Close(_))) | None | Some(Err(_)) => return Err(closed()),
+                Some(Ok(_)) => {}
+            }
+        }
+    }
+
+    pub(super) async fn hello(
+        ws: &mut Ws,
+        id: u64,
+        key: &KeyPair,
+        caps: &[&str],
+        version: Option<u32>,
+    ) -> Result<Welcome, ServerError> {
+        send(
+            ws,
+            agent_frame::Msg::Hello(Hello {
+                computer_id: id,
+                protocol_version: version.unwrap_or(PROTOCOL_VERSION),
+                capabilities: caps.iter().map(|c| c.to_string()).collect(),
+                info: Some(info()),
+            }),
+        )
+        .await?;
+        let server_frame::Msg::Challenge(c) = recv(ws).await? else {
+            return Err(closed());
+        };
+        let nonce: [u8; 32] = c.nonce.as_slice().try_into().map_err(|_| closed())?;
+        let sig = key.sign_challenge(AuthContext::Agent, id, &nonce);
+        send(
+            ws,
+            agent_frame::Msg::ChallengeResponse(ChallengeResponse {
+                signature: sig.to_bytes().to_vec(),
+            }),
+        )
+        .await?;
+        match recv(ws).await? {
+            server_frame::Msg::Welcome(w) => Ok(w),
+            _ => Err(closed()),
+        }
+    }
+
+    pub(super) async fn enroll(ws: &mut Ws, code: &str, key: &KeyPair) -> Result<u64, ServerError> {
+        send(
+            ws,
+            agent_frame::Msg::Enroll(Enroll {
+                code: code.into(),
+                public_key: key.public().as_bytes().to_vec(),
+                info: Some(info()),
+            }),
+        )
+        .await?;
+        match recv(ws).await? {
+            server_frame::Msg::Enrolled(e) => Ok(e.computer_id),
+            _ => Err(closed()),
+        }
+    }
+}
+
+#[allow(clippy::expect_used)]
+impl SimAgent {
+    async fn open(server: &TestServer) -> Result<sim::Ws, guardian_proto::v1::ServerError> {
+        tokio_tungstenite::connect_async(server.ws_url())
+            .await
+            .map(|(ws, _)| ws)
+            .map_err(|_| sim::closed())
+    }
+
+    fn spawn(
+        ws: sim::Ws,
+        id: u64,
+        key: guardian_core::keys::KeyPair,
+        welcome: guardian_proto::v1::Welcome,
+    ) -> SimAgent {
+        use futures_util::{SinkExt, StreamExt};
+        use prost::Message as _;
+        use tokio_tungstenite::tungstenite::Message;
+        let (frames_tx, frames) = tokio::sync::mpsc::unbounded_channel();
+        let (out, mut out_rx) = tokio::sync::mpsc::unbounded_channel::<sim::Out>();
+        let reader = tokio::spawn(async move {
+            let (mut sink, mut stream) = ws.split();
+            let mut silent = false;
+            loop {
+                tokio::select! {
+                    m = stream.next(), if !silent => match m {
+                        Some(Ok(Message::Binary(b))) => {
+                            if let Ok(f) = guardian_proto::v1::ServerFrame::decode(b.as_ref()) {
+                                let _ = frames_tx.send(f);
+                            }
+                        }
+                        Some(Ok(Message::Close(_))) | None | Some(Err(_)) => return,
+                        Some(Ok(_)) => {}
+                    },
+                    o = out_rx.recv() => match o {
+                        Some(sim::Out::Frame(f)) => {
+                            let _ = sink.send(Message::Binary(f.encode_to_vec().into())).await;
+                        }
+                        Some(sim::Out::Silence) => silent = true,
+                        Some(sim::Out::Close) | None => {
+                            let _ = sink.close().await;
+                            return;
+                        }
+                    },
+                }
+            }
+        });
+        SimAgent {
+            id,
+            key,
+            welcome,
+            frames,
+            out,
+            reader,
+        }
+    }
+
+    /// Enrolls with `code` and a fresh key, then completes the handshake.
+    pub async fn enroll(
+        server: &TestServer,
+        code: &str,
+        caps: &[&str],
+    ) -> Result<SimAgent, guardian_proto::v1::ServerError> {
+        SimAgent::enroll_with_key(
+            server,
+            code,
+            &guardian_core::keys::KeyPair::generate(),
+            caps,
+        )
+        .await
+    }
+
+    /// Enrolls with a given key.
+    pub async fn enroll_with_key(
+        server: &TestServer,
+        code: &str,
+        key: &guardian_core::keys::KeyPair,
+        caps: &[&str],
+    ) -> Result<SimAgent, guardian_proto::v1::ServerError> {
+        let mut ws = SimAgent::open(server).await?;
+        let id = sim::enroll(&mut ws, code, key).await?;
+        let welcome = sim::hello(&mut ws, id, key, caps, None).await?;
+        let key = guardian_core::keys::KeyPair::from_seed(&key.seed());
+        Ok(SimAgent::spawn(ws, id, key, welcome))
+    }
+
+    /// Reconnects an enrolled computer.
+    pub async fn connect(
+        server: &TestServer,
+        id: u64,
+        key: &guardian_core::keys::KeyPair,
+        caps: &[&str],
+    ) -> Result<SimAgent, guardian_proto::v1::ServerError> {
+        SimAgent::connect_inner(server, id, key, caps, None).await
+    }
+
+    /// Reconnects announcing another protocol version.
+    pub async fn connect_with_version(
+        server: &TestServer,
+        id: u64,
+        key: &guardian_core::keys::KeyPair,
+        caps: &[&str],
+        version: u32,
+    ) -> Result<SimAgent, guardian_proto::v1::ServerError> {
+        SimAgent::connect_inner(server, id, key, caps, Some(version)).await
+    }
+
+    async fn connect_inner(
+        server: &TestServer,
+        id: u64,
+        key: &guardian_core::keys::KeyPair,
+        caps: &[&str],
+        version: Option<u32>,
+    ) -> Result<SimAgent, guardian_proto::v1::ServerError> {
+        let mut ws = SimAgent::open(server).await?;
+        let welcome = sim::hello(&mut ws, id, key, caps, version).await?;
+        let key = guardian_core::keys::KeyPair::from_seed(&key.seed());
+        Ok(SimAgent::spawn(ws, id, key, welcome))
+    }
+
+    /// The `Welcome` the server sent.
+    pub fn welcome(&self) -> &guardian_proto::v1::Welcome {
+        &self.welcome
+    }
+
+    /// The next frame, or `None` on timeout or close.
+    pub async fn next_frame(
+        &mut self,
+        timeout: Duration,
+    ) -> Option<guardian_proto::v1::ServerFrame> {
+        tokio::time::timeout(timeout, self.frames.recv())
+            .await
+            .ok()
+            .flatten()
+    }
+
+    /// Waits until the server closes the connection, discarding frames.
+    pub async fn wait_closed(&mut self, timeout: Duration) -> bool {
+        tokio::time::timeout(timeout, async {
+            while self.frames.recv().await.is_some() {}
+        })
+        .await
+        .is_ok()
+    }
+
+    /// Reports a command result.
+    pub async fn send_result(&mut self, r: guardian_proto::v1::CommandResult) {
+        let _ = self
+            .out
+            .send(sim::Out::Frame(guardian_proto::v1::AgentFrame {
+                msg: Some(guardian_proto::v1::agent_frame::Msg::CommandResult(r)),
+            }));
+    }
+
+    /// Stops answering pings (to test the idle timeout).
+    pub fn go_silent(&self) {
+        let _ = self.out.send(sim::Out::Silence);
+    }
+
+    /// The computer id.
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+
+    /// The agent's key.
+    pub fn key(&self) -> &guardian_core::keys::KeyPair {
+        &self.key
+    }
+
+    /// Closes the connection cleanly.
+    pub async fn close(self) {
+        let _ = self.out.send(sim::Out::Close);
+        let _ = tokio::time::timeout(Duration::from_secs(2), self.reader).await;
+    }
+}

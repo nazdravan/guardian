@@ -6,6 +6,7 @@ use crate::auth::RateLimiter;
 use crate::batch::Batcher;
 use crate::config::ServerConfig;
 use crate::db::Db;
+use crate::hub::{Hub, HubEvent};
 
 /// Shared server state (behind an `Arc`).
 #[derive(Debug)]
@@ -20,6 +21,8 @@ pub struct AppState {
     pub bootstrap: Mutex<Option<String>>,
     /// The configuration the server was started with.
     pub config: ServerConfig,
+    /// Connected agents and the event bus.
+    pub hub: Hub,
 }
 
 impl AppState {
@@ -51,8 +54,8 @@ impl AppState {
     pub async fn user_rooms_changed(&self, _user_id: i64) {}
 
     /// Whether an agent is connected (the hub, from Task 11).
-    pub fn is_online(&self, _id: u64) -> bool {
-        false
+    pub fn is_online(&self, id: u64) -> bool {
+        self.hub.is_online(id)
     }
 
     /// A computer's row changed (Watch event, Task 14).
@@ -64,8 +67,31 @@ impl AppState {
     /// A room was deleted (Watch event, Task 14).
     pub fn room_removed(&self, _room_id: i64) {}
 
-    /// A computer was revoked (wired in Task 11).
-    pub async fn computer_revoked(&self, _id: u64) {}
+    /// A computer was revoked: tell it, close it, and drop it from `Watch`.
+    pub async fn computer_revoked(&self, id: u64) {
+        self.hub.send(
+            id,
+            guardian_proto::v1::ServerFrame {
+                msg: Some(guardian_proto::v1::server_frame::Msg::Error(
+                    guardian_proto::v1::ServerError {
+                        code: "revoked".into(),
+                        message: "this computer was removed from the school".into(),
+                    },
+                )),
+            },
+        );
+        self.hub.disconnect(id);
+        self.hub.emit(HubEvent::ComputerRemoved(id));
+    }
+
+    /// Commands waiting for `id` (Task 13).
+    pub async fn take_pending(&self, _id: u64) -> Vec<guardian_proto::v1::CommandEnvelope> {
+        Vec::new()
+    }
+
+    /// A result reported by an agent (Task 13).
+    pub async fn command_result_from_agent(&self, _id: u64, _r: guardian_proto::v1::CommandResult) {
+    }
 
     /// Queues an audit entry for an action through the server.
     pub fn audit(&self, actor: Option<i64>, action: &str, target: String, detail: String) {

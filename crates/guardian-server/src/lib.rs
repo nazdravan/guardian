@@ -13,10 +13,12 @@ pub mod batch;
 pub mod config;
 pub mod db;
 pub mod grpc;
+pub mod hub;
 pub mod net;
 pub mod state;
 #[cfg(feature = "testing")]
 pub mod testing;
+pub mod ws;
 
 pub use config::{ServerConfig, TlsMode};
 pub use state::AppState;
@@ -70,6 +72,7 @@ impl ServerHandle {
     /// closes the database.
     pub async fn shutdown(self) {
         let _ = self.shutdown.send(true);
+        self.state.hub.disconnect_all();
         for t in self.tasks {
             let _ = t.await;
         }
@@ -101,11 +104,15 @@ pub async fn start(config: ServerConfig) -> Result<ServerHandle, StartError> {
         limiter: auth::RateLimiter::new(config.auth_rate_per_minute),
         bootstrap: Mutex::new(bootstrap),
         config: config.clone(),
+        hub: hub::Hub::new(),
     });
     let listener = TcpListener::bind(config.listen).await?;
     let addr = listener.local_addr()?;
     let (tx, rx) = watch::channel(false);
-    let router = grpc::router(state.clone());
+    let router = axum::Router::new()
+        .route("/agent/ws", axum::routing::get(ws::handler))
+        .with_state(state.clone())
+        .merge(grpc::router(state.clone()));
     let serve = tokio::spawn(net::serve(listener, router, rx));
     Ok(ServerHandle {
         addr,
