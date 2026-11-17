@@ -1,0 +1,27 @@
+[package]
+name = "guardian-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+testing = ["dep:tempfile"]
+
+[dependencies]
+guardian-core.workspace = true
+guardian-proto.workspace = true
+prost.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+tempfile = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true
