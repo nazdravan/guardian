@@ -8,6 +8,7 @@ use guardian_proto::v1::SystemInfo;
 
 use crate::{Platform, PlatformError, ProcessEventSource, UserSession};
 
+mod events;
 mod ffi_procs;
 mod procs;
 
@@ -74,7 +75,7 @@ impl Platform for Windows {
     }
 
     fn process_events(&self) -> Result<Box<dyn ProcessEventSource>, PlatformError> {
-        Err(PlatformError::Unsupported)
+        Ok(Box::new(events::EtwEvents::start()?))
     }
 
     fn trusted_roots(&self) -> TrustedRoots {

@@ -99,3 +99,26 @@ fn system_info_has_hostname_and_os() {
     assert_eq!(i.os, "windows");
     assert!(!i.hostname.is_empty());
 }
+
+#[tokio::test]
+#[ignore = "needs administrator rights (ETW)"]
+async fn etw_reports_new_processes() {
+    let p = guardian_platform::current();
+    let mut src = p.process_events().unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let mut child = Command::new("cmd").args(["/c", "exit"]).spawn().unwrap();
+    let want = child.id();
+    let _ = child.wait();
+    let got = tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            if let Ok(ev) = src.next().await
+                && ev.pid == want
+            {
+                return ev.pid;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(got, want);
+}
