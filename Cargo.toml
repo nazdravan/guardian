@@ -21,6 +21,9 @@ guardian-core = { path = "crates/guardian-core" }
 guardian-proto = { path = "crates/guardian-proto" }
 guardian-server = { path = "crates/guardian-server" }
 guardian-client = { path = "crates/guardian-client" }
+guardian-platform = { path = "crates/guardian-platform" }
+guardian-agent = { path = "crates/guardian-agent" }
+guardian-worker = { path = "crates/guardian-worker" }
 
 tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal", "fs", "io-util"] }
 tokio-stream = { version = "0.1", features = ["sync", "net"] }
@@ -65,6 +68,11 @@ toml = "1"
 rpassword = "7"
 serde = { version = "1", features = ["derive"] }
 windows-service = "0.8"
+async-trait = "0.1"
+if-addrs = "0.15"
+nix = { version = "0.32", features = ["signal", "socket", "uio", "user", "process"] }
+ferrisetw = "1.2"
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading", "Win32_System_ProcessStatus", "Win32_System_RemoteDesktop", "Win32_Security", "Win32_System_Environment", "Win32_System_Pipes", "Win32_System_IO"] }
 
 [profile.dev.package.argon2]
 opt-level = 3
