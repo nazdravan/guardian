@@ -105,6 +105,35 @@ cd mobile && flutter pub run flutter_launcher_icons
 - `/manage/computers/block_all` — block all computers (ADMIN_TOKEN auth)
 - `/health` — health check (unauthenticated)
 
+## Guardian 3.0 (Rust, in progress)
+
+A clean rewrite on branch `rust-rewrite` (spec: `specs/2026-11-17-rust-rewrite-design.md`; server:
+`specs/server-v3.md`; plans in `specs/plans/`). The Go code above stays until the 3.0 release.
+Stage 1 (server + CLI) is done; the agent, the egui console and `guardian-setup` come next.
+
+Cargo workspace at the repo root (`Cargo.toml`, `crates/*`, `proto/`), Rust edition 2024, MSRV 1.88:
+
+| Crate | What |
+|---|---|
+| `crates/guardian-proto` | `proto/guardian/v1/*.proto` compiled with `protox` in `build.rs` (no `protoc`) |
+| `crates/guardian-core` | policy, protected processes, kill/allow decision, ed25519 keys, codes, feature registry |
+| `crates/guardian-server` | server library + `guardian-server` binary; feature `testing` = `TestServer`, `SimAgent` |
+| `crates/guardian-client` | TLS with certificate pin, gRPC channel, token interceptor, WebSocket connector |
+| `crates/guardian-cli` | `guardian-cli` |
+
+```sh
+cargo build --workspace
+cargo test --workspace --all-features
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo fmt --all --check
+cargo deny check
+```
+
+Rules: the `.proto` files are the contract (field numbers never change); `guardian-core` is the only place
+policy logic lives; libraries are `#![forbid(unsafe_code)]`; no `unwrap`/`expect`/`panic` outside tests
+(the single exception is `guardian_core::random::random_bytes`); dependencies must pass `cargo deny`
+(no GPL/MPL). Linux packaging: `packaging/server-linux-v3/`. CI: `.github/workflows/rust.yml`.
+
 ## Key Dependencies
 
 - **Server Go:** `go-chi/chi` (router), `go-chi/cors`, `modernc.org/sqlite` (pure Go SQLite)

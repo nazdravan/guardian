@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use guardian_core::codes::normalize_code;
+use guardian_core::codes::{codes_equal, normalize_code};
 use guardian_core::keys::PublicKey;
 use guardian_proto::v1::auth_server::Auth;
 use guardian_proto::v1::{
@@ -55,7 +55,7 @@ impl Auth for AuthSvc {
         let Some(expected) = self.state.bootstrap_code() else {
             return Err(Status::failed_precondition("server is already initialized"));
         };
-        if normalize_code(&r.bootstrap_code) != expected {
+        if !codes_equal(&normalize_code(&r.bootstrap_code), &expected) {
             return Err(Status::permission_denied("wrong bootstrap code"));
         }
         validate_login(&r.login)?;

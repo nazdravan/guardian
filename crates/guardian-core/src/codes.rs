@@ -32,6 +32,14 @@ pub fn normalize_code(raw: &str) -> String {
         .map(|c| c.to_ascii_uppercase())
         .collect()
 }
+/// Compares two normalized codes without an early exit on the first difference.
+pub fn codes_equal(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
 
 #[cfg(test)]
 mod tests {
@@ -42,6 +50,14 @@ mod tests {
         let c = generate_code();
         assert_eq!(c.len(), 8);
         assert!(c.chars().all(|ch| CODE_ALPHABET.contains(ch)));
+    }
+
+    #[test]
+    fn codes_equal_compares_whole_codes() {
+        assert!(codes_equal("ABCD2345", "ABCD2345"));
+        assert!(!codes_equal("ABCD2345", "ABCD2346"));
+        assert!(!codes_equal("ABCD2345", "ABCD234"));
+        assert!(!codes_equal("", "A"));
     }
 
     #[test]

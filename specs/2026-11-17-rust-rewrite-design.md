@@ -187,6 +187,7 @@ Servicii (împărțirea exactă e a builder-ului): `Auth` (login, logout, schimb
 ### 9.4 Hub-ul WebSocket al agenților
 - `GET /agent/ws` (upgrade), doar peste TLS.
 - Handshake: agentul trimite `hello` (id, versiune, versiune protocol, capabilities) → serverul trimite o provocare aleatoare → agentul o semnează cu cheia ed25519 → serverul verifică cu cheia publică înregistrată → serverul trimite starea completă, comenzile în așteptare nexpirate, cheile publice ale consolelor neretrase cu sălile profesorilor lor și lista calculatoarelor din aceeași sală (pentru modul local).
+- *Notă 2026-11-17 (etapa 1):* lista calculatoarelor din aceeași sală nu se trimite în `Welcome`; niciun consumator nu o folosește în etapele 1–3, se adaugă când modul local (§11) are nevoie de ea.
 - Ping/pong la ~20 s; agent offline după ~60 s fără trafic.
 - Schimbările de stare și comenzile se împing imediat. Scalare țintă: câteva sute de agenți pe un server mic.
 - Revocare: ștergerea calculatorului închide conexiunea și cheia nu mai e acceptată. Agentul revocat continuă să aplice ultima stare (fail-secure).
