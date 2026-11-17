@@ -86,3 +86,12 @@ message ServerFrame {
     Welcome trust_update = 7;
   }
 }
+
+// What the agent keeps on disk (state.pb): applied at start before any connection.
+message StoredState {
+  AgentState state = 1;
+  repeated TrustedConsole consoles = 2;
+  repeated AuthorizedUser users = 3;
+  int64 saved_at_unix = 4;
+  uint64 computer_id = 5;
+}

@@ -10,6 +10,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "guardian/v1/common.proto",
             "guardian/v1/agent.proto",
             "guardian/v1/api.proto",
+            "guardian/v1/worker.proto",
         ],
         ["../../proto"],
     )?;

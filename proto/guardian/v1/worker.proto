@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package guardian.v1;
+
+// Local IPC between guardian-agent and guardian-worker. Each frame is a
+// big-endian u32 length followed by the protobuf bytes, at most 64 KiB.
+
+message WorkerHello {
+  uint32 pid = 1;
+  string session_id = 2;
+  string user = 3;
+  string worker_version = 4;
+}
+
+message Ping {
+  uint64 seq = 1;
+}
+
+message Pong {
+  uint64 seq = 1;
+}
+
+// Worker → agent.
+message WorkerFrame {
+  oneof msg {
+    WorkerHello hello = 1;
+    Pong pong = 2;
+  }
+}
+
+// Agent → worker. Stage 4 adds the visible features.
+message AgentToWorker {
+  oneof msg {
+    Ping ping = 1;
+  }
+}
