@@ -7,3 +7,6 @@ guardian.db
 .DS_Store
 
 dist/
+
+# Rust
+/target
