@@ -9,3 +9,4 @@ pub mod keys;
 pub mod policy;
 pub mod protected;
 pub mod random;
+pub mod trusted;
