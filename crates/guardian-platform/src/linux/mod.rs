@@ -10,6 +10,7 @@ use crate::{Platform, PlatformError, ProcessEventSource, UserSession};
 
 mod events;
 mod procs;
+mod session;
 
 /// The Linux platform.
 #[derive(Debug, Default, Clone, Copy)]
@@ -63,15 +64,15 @@ impl Platform for Linux {
     }
 
     fn active_session(&self) -> Result<Option<UserSession>, PlatformError> {
-        Err(PlatformError::Unsupported)
+        session::active()
     }
 
     fn spawn_in_session(
         &self,
-        _s: &UserSession,
-        _exe: &Path,
-        _args: &[String],
+        s: &UserSession,
+        exe: &Path,
+        args: &[String],
     ) -> Result<u32, PlatformError> {
-        Err(PlatformError::Unsupported)
+        session::spawn(s, exe, args)
     }
 }

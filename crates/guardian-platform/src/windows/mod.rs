@@ -9,8 +9,13 @@ use guardian_proto::v1::SystemInfo;
 use crate::{Platform, PlatformError, ProcessEventSource, UserSession};
 
 mod events;
+mod ffi_pipe;
 mod ffi_procs;
+mod ffi_session;
 mod procs;
+mod session;
+
+pub(crate) use ffi_pipe::client_pid as pipe_client_pid;
 
 /// The Windows platform.
 #[derive(Debug, Default, Clone, Copy)]
@@ -96,15 +101,15 @@ impl Platform for Windows {
     }
 
     fn active_session(&self) -> Result<Option<UserSession>, PlatformError> {
-        Err(PlatformError::Unsupported)
+        session::active()
     }
 
     fn spawn_in_session(
         &self,
-        _s: &UserSession,
-        _exe: &Path,
-        _args: &[String],
+        s: &UserSession,
+        exe: &Path,
+        args: &[String],
     ) -> Result<u32, PlatformError> {
-        Err(PlatformError::Unsupported)
+        session::spawn(s, exe, args)
     }
 }

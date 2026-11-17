@@ -15,6 +15,7 @@ use guardian_proto::v1::SystemInfo;
 
 #[cfg(feature = "testing")]
 pub mod fake;
+pub mod ipc;
 #[cfg(target_os = "linux")]
 mod linux;
 mod unsupported;
