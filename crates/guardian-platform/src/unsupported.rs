@@ -9,6 +9,7 @@ use guardian_proto::v1::SystemInfo;
 use crate::{Platform, PlatformError, ProcessEventSource, UserSession};
 
 /// A platform that supports nothing.
+#[cfg_attr(any(target_os = "linux", windows), allow(dead_code))]
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Unsupported;
 
