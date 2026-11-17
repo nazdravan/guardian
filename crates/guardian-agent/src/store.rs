@@ -182,6 +182,16 @@ impl SeenIds {
         true
     }
 
+    /// How many ids are remembered.
+    pub fn len(&self) -> usize {
+        self.order.len()
+    }
+
+    /// No ids remembered.
+    pub fn is_empty(&self) -> bool {
+        self.order.is_empty()
+    }
+
     /// Writes `seen.txt`.
     pub fn save(&self, path: &Path) -> Result<(), StoreError> {
         let mut text = String::new();

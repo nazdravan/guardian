@@ -1,0 +1,27 @@
+[Unit]
+Description=Guardian 3.0 agent
+After=network-online.target systemd-logind.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Root: it must kill anyone's processes, read the proc connector and start
+# the worker as the logged-in user.
+ExecStart=/opt/guardian-agent/guardian-agent --config /etc/guardian-agent/agent.toml --data-dir /var/lib/guardian-agent run
+Restart=always
+RestartSec=2
+StateDirectory=guardian-agent
+StateDirectoryMode=0700
+ConfigurationDirectory=guardian-agent
+ConfigurationDirectoryMode=0700
+# Holds worker.sock; 0711 lets the worker (running as the user) reach it.
+RuntimeDirectory=guardian-agent
+RuntimeDirectoryMode=0711
+NoNewPrivileges=yes
+ProtectSystem=full
+# No ProtectHome/PrivateTmp: the worker is started from this unit and inherits
+# its mount namespace, and it needs the user's real home and /tmp (X11 socket).
+CapabilityBoundingSet=CAP_KILL CAP_NET_ADMIN CAP_SETUID CAP_SETGID CAP_SYS_PTRACE CAP_DAC_READ_SEARCH
+
+[Install]
+WantedBy=multi-user.target

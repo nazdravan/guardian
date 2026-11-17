@@ -21,13 +21,16 @@ toml.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+windows-service.workspace = true
+
 [dev-dependencies]
 guardian-worker.workspace = true
 guardian-platform = { workspace = true, features = ["testing"] }
 guardian-server = { workspace = true, features = ["testing"] }
 tempfile.workspace = true
 guardian-proto.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["process"] }
 
 [lints]
 workspace = true
