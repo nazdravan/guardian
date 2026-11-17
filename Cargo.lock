@@ -885,6 +885,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "guardian-agent"
+version = "3.0.0-dev"
+dependencies = [
+ "clap",
+ "futures-util",
+ "guardian-client",
+ "guardian-core",
+ "guardian-platform",
+ "guardian-proto",
+ "guardian-server",
+ "prost",
+ "serde",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-tungstenite 0.30.0",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "guardian-cli"
 version = "3.0.0-dev"
 dependencies = [

@@ -1,0 +1,31 @@
+[package]
+name = "guardian-agent"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+clap.workspace = true
+futures-util.workspace = true
+guardian-client.workspace = true
+guardian-core.workspace = true
+guardian-platform.workspace = true
+guardian-proto.workspace = true
+prost.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+toml.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+guardian-platform = { workspace = true, features = ["testing"] }
+guardian-server = { workspace = true, features = ["testing"] }
+tempfile.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true
