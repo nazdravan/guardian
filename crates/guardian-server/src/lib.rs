@@ -15,6 +15,7 @@ pub mod db;
 pub mod grpc;
 pub mod hub;
 pub mod net;
+pub mod retention;
 pub mod state;
 #[cfg(feature = "testing")]
 pub mod testing;
@@ -129,6 +130,7 @@ pub async fn start(config: ServerConfig) -> Result<ServerHandle, StartError> {
         .route("/agent/ws", axum::routing::get(ws::handler))
         .with_state(state.clone())
         .merge(grpc::router(state.clone()));
+    let rx_ret = rx.clone();
     let serve = tokio::spawn(net::serve(listener, router, rx.clone()));
     let expiry = tokio::spawn(periodic(rx, config.expiry_interval, {
         let state = state.clone();
@@ -137,11 +139,29 @@ pub async fn start(config: ServerConfig) -> Result<ServerHandle, StartError> {
             async move { state.expire_commands().await }
         }
     }));
+    let retention = tokio::spawn({
+        let state = state.clone();
+        let mut shutdown = rx_ret;
+        let every = config.retention_interval;
+        async move {
+            let first = tokio::time::Instant::now() + std::time::Duration::from_secs(60).min(every);
+            let mut tick = tokio::time::interval_at(first, every);
+            loop {
+                tokio::select! {
+                    _ = tick.tick() => match retention::run_once(&state.db, db::now_unix()).await {
+                        Ok(r) => tracing::info!("retention: {r:?}"),
+                        Err(e) => tracing::error!("retention failed: {e}"),
+                    },
+                    _ = shutdown.changed() => return,
+                }
+            }
+        }
+    });
     Ok(ServerHandle {
         addr,
         state,
         cert_sha256: None,
         shutdown: tx,
-        tasks: vec![serve, expiry],
+        tasks: vec![serve, expiry, retention],
     })
 }
