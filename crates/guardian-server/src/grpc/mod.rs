@@ -8,7 +8,7 @@ use guardian_proto::v1::auth_server::AuthServer;
 use crate::state::AppState;
 
 pub mod admin;
-mod admin_stubs;
+mod admin_computers;
 mod admin_users;
 pub mod auth;
 

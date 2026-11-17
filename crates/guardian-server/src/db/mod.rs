@@ -1,5 +1,8 @@
 //! SQLite access: one writer connection, a separate read-only pool.
 
+pub mod codes;
+pub mod computers;
+pub mod consoles;
 pub mod profiles;
 pub mod rooms;
 pub mod sessions;

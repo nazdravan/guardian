@@ -50,6 +50,14 @@ impl AppState {
     /// A user's rooms, role or active flag changed (wired in Task 14).
     pub async fn user_rooms_changed(&self, _user_id: i64) {}
 
+    /// Whether an agent is connected (the hub, from Task 11).
+    pub fn is_online(&self, _id: u64) -> bool {
+        false
+    }
+
+    /// A computer's row changed (Watch event, Task 14).
+    pub fn computer_changed(&self, _id: u64) {}
+
     /// A room was renamed or switched profile (Watch event, Task 14).
     pub fn room_changed(&self, _room_id: i64) {}
 

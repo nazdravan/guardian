@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use guardian_core::codes::normalize_code;
+use guardian_core::keys::PublicKey;
 use guardian_proto::v1::auth_server::Auth;
 use guardian_proto::v1::{
     ChangePasswordRequest, Empty, EnrollConsoleRequest, EnrollConsoleResponse, InitRequest,
@@ -15,6 +16,7 @@ use crate::auth::{
     validate_password, verify_password_async,
 };
 use crate::batch::{AuditEntry, AuditSource};
+use crate::db::codes::{CodeError, CodeKind, INVALID_CODE};
 use crate::db::{self, now_unix, users::UserRow};
 use crate::state::AppState;
 
@@ -145,8 +147,30 @@ impl Auth for AuthSvc {
 
     async fn enroll_console(
         &self,
-        _req: Request<EnrollConsoleRequest>,
+        req: Request<EnrollConsoleRequest>,
     ) -> Result<Response<EnrollConsoleResponse>, Status> {
-        Err(Status::unimplemented("EnrollConsole"))
+        self.state.limiter.check_request(&req)?;
+        let r = req.into_inner();
+        let key = PublicKey::from_bytes(&r.public_key)
+            .map_err(|_| Status::invalid_argument("public_key must be a 32-byte ed25519 key"))?;
+        let name = crate::grpc::admin::valid_name(&r.name, "console")?;
+        match db::codes::consume(&self.state.db, &r.code, CodeKind::Console).await {
+            Ok(_) => {}
+            Err(CodeError::Invalid) => return Err(Status::permission_denied(INVALID_CODE)),
+            Err(CodeError::Db(e)) => return Err(e.into()),
+        }
+        let id = db::consoles::insert(&self.state.db, &key, &name)
+            .await
+            .map_err(|e| {
+                if e.is_unique_violation() {
+                    Status::already_exists("this console is already enrolled")
+                } else {
+                    e.into()
+                }
+            })?;
+        self.state
+            .audit(None, "EnrollConsole", format!("console:{id}"), name);
+        self.state.trust_changed().await;
+        Ok(Response::new(EnrollConsoleResponse { console_id: id }))
     }
 }
