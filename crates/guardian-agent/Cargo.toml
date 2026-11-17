@@ -25,6 +25,7 @@ tracing-subscriber.workspace = true
 guardian-platform = { workspace = true, features = ["testing"] }
 guardian-server = { workspace = true, features = ["testing"] }
 tempfile.workspace = true
+guardian-proto.workspace = true
 tokio.workspace = true
 
 [lints]
