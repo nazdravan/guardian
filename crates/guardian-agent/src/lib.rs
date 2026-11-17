@@ -3,7 +3,12 @@
 
 #![forbid(unsafe_code)]
 
+mod agent;
 pub mod config;
 pub mod conn;
 pub mod engine;
 pub mod store;
+
+pub use agent::{
+    AGENT_VERSION, AgentError, AgentHandle, AgentOptions, AgentStatus, CAPABILITIES, enroll, run,
+};
