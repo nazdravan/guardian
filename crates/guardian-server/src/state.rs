@@ -44,28 +44,84 @@ pub enum Scope {
 }
 
 impl AppState {
-    /// Pushes new state to the agents in `scope` (wired to the hub in Task 12).
-    pub async fn policy_changed(&self, _scope: Scope) {}
+    /// Computes and pushes the new state to every connected agent in `scope`.
+    pub async fn policy_changed(&self, scope: Scope) {
+        let online = self.hub.online_ids();
+        let targets: Vec<u64> = match scope {
+            Scope::All => online,
+            Scope::Computer(c) => online.into_iter().filter(|o| *o == c).collect(),
+            Scope::Room(r) => match crate::db::computers::in_room(&self.db, r).await {
+                Ok(ids) => ids.into_iter().filter(|i| online.contains(i)).collect(),
+                Err(e) => {
+                    tracing::error!("policy push for room {r}: {e}");
+                    return;
+                }
+            },
+        };
+        for id in targets {
+            match crate::hub::build_agent_state(&self.db, id).await {
+                Ok(st) => {
+                    self.hub.send(
+                        id,
+                        guardian_proto::v1::ServerFrame {
+                            msg: Some(guardian_proto::v1::server_frame::Msg::State(st)),
+                        },
+                    );
+                }
+                Err(e) => tracing::error!("policy push to computer {id}: {e}"),
+            }
+            self.hub.emit(HubEvent::ComputerChanged(id));
+        }
+    }
 
-    /// Pushes trusted consoles and users to every agent (wired in Task 12).
-    pub async fn trust_changed(&self) {}
+    /// Pushes trusted consoles and authorized users to every connected agent.
+    pub async fn trust_changed(&self) {
+        for id in self.hub.online_ids() {
+            match crate::hub::build_trust(&self.db, id).await {
+                Ok((consoles, users)) => {
+                    self.hub.send(
+                        id,
+                        guardian_proto::v1::ServerFrame {
+                            msg: Some(guardian_proto::v1::server_frame::Msg::TrustUpdate(
+                                guardian_proto::v1::Welcome {
+                                    state: None,
+                                    pending: Vec::new(),
+                                    consoles,
+                                    users,
+                                },
+                            )),
+                        },
+                    );
+                }
+                Err(e) => tracing::error!("trust push to computer {id}: {e}"),
+            }
+        }
+    }
 
-    /// A user's rooms, role or active flag changed (wired in Task 14).
-    pub async fn user_rooms_changed(&self, _user_id: i64) {}
+    /// A user's rooms, role or active flag changed.
+    pub async fn user_rooms_changed(&self, user_id: i64) {
+        self.hub.emit(HubEvent::UserRoomsChanged(user_id));
+    }
 
     /// Whether an agent is connected (the hub, from Task 11).
     pub fn is_online(&self, id: u64) -> bool {
         self.hub.is_online(id)
     }
 
-    /// A computer's row changed (Watch event, Task 14).
-    pub fn computer_changed(&self, _id: u64) {}
+    /// A computer's row changed.
+    pub fn computer_changed(&self, id: u64) {
+        self.hub.emit(HubEvent::ComputerChanged(id));
+    }
 
-    /// A room was renamed or switched profile (Watch event, Task 14).
-    pub fn room_changed(&self, _room_id: i64) {}
+    /// A room was renamed or switched profile.
+    pub fn room_changed(&self, room_id: i64) {
+        self.hub.emit(HubEvent::RoomChanged(room_id));
+    }
 
-    /// A room was deleted (Watch event, Task 14).
-    pub fn room_removed(&self, _room_id: i64) {}
+    /// A room was deleted.
+    pub fn room_removed(&self, room_id: i64) {
+        self.hub.emit(HubEvent::RoomRemoved(room_id));
+    }
 
     /// A computer was revoked: tell it, close it, and drop it from `Watch`.
     pub async fn computer_revoked(&self, id: u64) {
