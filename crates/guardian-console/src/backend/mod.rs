@@ -2,6 +2,7 @@
 //! the UI, talks gRPC to the server, and sends [`Event`]s back. The UI only
 //! draws from events, so it can be tested with a fake backend.
 
+mod actions;
 mod conn;
 mod errors;
 
@@ -11,7 +12,7 @@ use std::time::Duration;
 
 use futures_util::FutureExt;
 use guardian_client::Authed;
-use guardian_proto::v1::{EnrollCode, Profile, Settings, User, WatchEvent};
+use guardian_proto::v1::{EnrollCode, Profile, Role, Settings, User, WatchEvent};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tonic::transport::Channel;
@@ -62,6 +63,105 @@ pub enum Action {
     StopEmbedded,
     /// Add the firewall rule for the embedded server (Windows).
     OpenFirewall,
+    /// Switch a room's active profile.
+    SetRoomProfile {
+        /// Room.
+        room_id: i64,
+        /// Profile.
+        profile_id: i64,
+    },
+    /// New room.
+    CreateRoom {
+        /// Name.
+        name: String,
+    },
+    /// Rename a room.
+    RenameRoom {
+        /// Room.
+        id: i64,
+        /// New name.
+        name: String,
+    },
+    /// Delete a room.
+    DeleteRoom {
+        /// Room.
+        id: i64,
+    },
+    /// Fetch the profiles.
+    LoadProfiles,
+    /// Create (`id == 0`) or update a profile.
+    SaveProfile(Profile),
+    /// Delete a profile.
+    DeleteProfile {
+        /// Profile.
+        id: i64,
+    },
+    /// Rename, move or set the exception of a computer (`Some(0)` = none).
+    UpdateComputer {
+        /// Computer.
+        id: u64,
+        /// New name.
+        name: Option<String>,
+        /// New room.
+        room_id: Option<i64>,
+        /// New exception profile.
+        exception_profile_id: Option<i64>,
+    },
+    /// Revoke a computer.
+    RevokeComputer {
+        /// Computer.
+        id: u64,
+    },
+    /// Fetch the users.
+    LoadUsers,
+    /// New user.
+    CreateUser {
+        /// Login.
+        login: String,
+        /// Password.
+        password: Secret,
+        /// Role.
+        role: Role,
+    },
+    /// Change a user.
+    UpdateUser {
+        /// User.
+        id: i64,
+        /// New role.
+        role: Option<Role>,
+        /// Enable/disable.
+        active: Option<bool>,
+        /// New password.
+        new_password: Option<Secret>,
+    },
+    /// Set exactly the rooms of a user.
+    SetUserRooms {
+        /// User.
+        user_id: i64,
+        /// Rooms.
+        room_ids: Vec<i64>,
+    },
+    /// New agent enrollment code (`room_id == 0`: one computer).
+    CreateAgentCode {
+        /// Room.
+        room_id: i64,
+        /// Uses (room codes).
+        max_uses: u32,
+        /// Lifetime (room codes).
+        ttl_seconds: u32,
+    },
+    /// Fetch the school settings.
+    LoadSettings,
+    /// Save the school settings.
+    SaveSettings(Settings),
+    /// Change the signed-in user's password.
+    ChangePassword {
+        /// Current password.
+        old: Secret,
+        /// New password.
+        new: Secret,
+    },
+
     /// Stop everything (the window is closing).
     Shutdown,
 }
@@ -227,6 +327,16 @@ impl Core {
         f.clone()
     }
 
+    pub(crate) fn set_profiles(&self, ps: Vec<Profile>) -> Fleet {
+        let mut f = lock(&self.fleet);
+        f.set_profiles(ps);
+        f.clone()
+    }
+
+    pub(crate) fn profile_name(&self, id: i64) -> Option<String> {
+        lock(&self.fleet).profile(id).map(|p| p.name.clone())
+    }
+
     pub(crate) fn reset_fleet(&self) {
         *lock(&self.fleet) = Fleet::default();
     }
@@ -287,6 +397,7 @@ async fn handle(core: Arc<Core>, a: Action) {
         }
         Action::OpenFirewall => open_firewall(core).await,
         Action::Shutdown => {}
+        other => actions::run(core, other).await,
     }
 }
 

@@ -22,6 +22,7 @@ pub struct Console {
     dir: Option<tempfile::TempDir>,
     pub seen: Mutex<Vec<Event>>,
     pending: Mutex<VecDeque<Event>>,
+    last_fleet: Mutex<Option<Fleet>>,
 }
 
 impl Console {
@@ -37,6 +38,7 @@ impl Console {
             dir: Some(dir),
             seen: Mutex::new(Vec::new()),
             pending: Mutex::new(VecDeque::new()),
+            last_fleet: Mutex::new(None),
         }
     }
 
@@ -55,6 +57,9 @@ impl Console {
                 let mut q = self.pending.lock().unwrap();
                 q.extend(self.b.poll());
                 while let Some(e) = q.pop_front() {
+                    if let Event::Fleet(f) = &e {
+                        *self.last_fleet.lock().unwrap() = Some(f.clone());
+                    }
                     self.seen.lock().unwrap().push(e.clone());
                     let hit = pred(&e);
                     got.push(e);
@@ -71,7 +76,11 @@ impl Console {
         }
     }
 
+    /// The latest fleet matching `pred`: the last one already seen, or the next.
     pub async fn fleet_where(&self, pred: impl Fn(&Fleet) -> bool) -> Fleet {
+        if let Some(f) = self.last_fleet.lock().unwrap().clone().filter(|f| pred(f)) {
+            return f;
+        }
         let evs = self
             .until(
                 |e| matches!(e, Event::Fleet(f) if pred(f)),

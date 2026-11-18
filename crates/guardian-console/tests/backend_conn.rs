@@ -149,10 +149,6 @@ async fn server_restart_reconnects_and_replaces_the_snapshot() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "enabled in Task 6, with SetRoomProfile"]
-async fn permission_denied_is_shown() {}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn logout_clears_the_token() {
     let s = TestServer::start().await;
     let _ = s.admin_token().await;
