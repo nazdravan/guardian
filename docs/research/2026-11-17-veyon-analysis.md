@@ -3,6 +3,13 @@
 > Data: 2026-11-17 · Sursă: [github.com/veyon/veyon](https://github.com/veyon/veyon) (branch `main`, 997 fișiere) + [docs.veyon.io](https://docs.veyon.io/en/latest/)
 > Scop: documentarea completă a felului în care e construit Veyon (arhitectură, protocol, plugin-uri, autentificare, config) ca să putem reimplementa **orice** funcțional în Rust și să rescriem Guardian-ul actual folosind cele mai bune idei din Veyon.
 
+> **Notă 2026-11-18 (Guardian 3.0 făcut, branch `rust-rewrite`):** din analiza de mai jos s-au păstrat agentul ca
+> serviciu cu worker în sesiunea utilizatorului, cheile ed25519 pe calculator și pe consolă, modelul de feature-uri
+> (`allowed_offline`) și canalul local direct consolă → agent. Diferențe față de Veyon: API-ul spre consolă e **gRPC**
+> (nu protocolul RFB/Veyon), politica e un **profil pe sală** (liber / blacklist / whitelist) calculat pe server,
+> agentul ține o conexiune ieșită spre server, iar canalul local (Noise IK, port 11500) e doar **rezervă** când serverul
+> nu răspunde. Nu există compatibilitate cu 2.x. Detalii: `specs/2026-11-17-rust-rewrite-design.md`, `specs/*.md`.
+
 ---
 
 ## 0. Rezumat executiv
