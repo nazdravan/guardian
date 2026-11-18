@@ -267,6 +267,7 @@ impl<B: Backend> ConsoleApp<B> {
                 self.embedded = s;
             }
             Event::FirewallBlocked(p) => self.firewall_blocked = Some(p),
+            Event::Fallback(_) | Event::FallbackEnabled(_) => {}
             Event::Done(m) => {
                 if m.starts_with("Port ") && m.contains("open in the firewall") {
                     self.firewall_blocked = None;

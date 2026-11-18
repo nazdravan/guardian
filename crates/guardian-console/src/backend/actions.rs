@@ -232,6 +232,10 @@ pub(crate) async fn run(core: Arc<Core>, action: Action) {
         | Action::StopEmbedded
         | Action::OpenFirewall
         | Action::ForgetMode
+        | Action::EnableFallback { .. }
+        | Action::FallbackLogin { .. }
+        | Action::EnterFallback
+        | Action::LeaveFallback
         | Action::Shutdown => {}
     }
 }

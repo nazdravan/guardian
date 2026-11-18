@@ -167,6 +167,20 @@ impl FallbackCache {
         }
     }
 
+    /// A cached user.
+    pub fn user(&self, id: i64) -> Option<CachedUser> {
+        self.0.users.iter().find(|u| u.user_id == id).cloned()
+    }
+
+    /// A cached user by login (no difference in case).
+    pub fn user_by_login(&self, login: &str) -> Option<CachedUser> {
+        self.0
+            .users
+            .iter()
+            .find(|u| u.login.eq_ignore_ascii_case(login))
+            .cloned()
+    }
+
     /// Whether any user can sign in locally.
     pub fn has_users(&self) -> bool {
         self.0.users.iter().any(|u| !u.verifier.is_empty())

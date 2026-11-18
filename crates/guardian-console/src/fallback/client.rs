@@ -238,8 +238,11 @@ impl LocalClient {
         user: &CachedUser,
         known: &BTreeMap<u64, SocketAddr>,
     ) -> BTreeMap<u64, (Reach, Option<SocketAddr>)> {
-        let mut out: BTreeMap<u64, (Reach, Option<SocketAddr>)> = stream::iter(computers)
-            .map(|c| async move { (c.id, self.probe(c, user, known.get(&c.id).copied()).await) })
+        let probes = computers.iter().cloned().map(|c| {
+            let (me, user, hint) = (self.clone(), user.clone(), known.get(&c.id).copied());
+            async move { (c.id, me.probe(&c, &user, hint).await) }
+        });
+        let mut out: BTreeMap<u64, (Reach, Option<SocketAddr>)> = stream::iter(probes)
             .buffer_unordered(PARALLEL)
             .collect()
             .await;
@@ -252,21 +255,21 @@ impl LocalClient {
             return out;
         }
         let found = self.discover(&missing, DISCOVER_WAIT).await;
-        let retried: Vec<(u64, (Reach, Option<SocketAddr>))> = stream::iter(missing.iter())
-            .filter_map(|c| {
-                let addr = found.get(&c.id).copied();
-                async move { addr.map(|a| (c, a)) }
-            })
-            .map(|(c, a)| async move {
+        let retries = missing.into_iter().filter_map(|c| {
+            let a = found.get(&c.id).copied()?;
+            let (me, user) = (self.clone(), user.clone());
+            Some(async move {
                 let req = LocalRequest {
                     id: request_id(),
-                    actor: Some(actor(user)),
+                    actor: Some(actor(&user)),
                     kind: Some(local_request::Kind::Status(StatusRequest {})),
                 };
-                let r = self.ask(a, c, req).await.unwrap_or(Reach::Unreachable);
+                let r = me.ask(a, &c, req).await.unwrap_or(Reach::Unreachable);
                 let addr = (!matches!(r, Reach::Unreachable)).then_some(a);
                 (c.id, (r, addr))
             })
+        });
+        let retried: Vec<(u64, (Reach, Option<SocketAddr>))> = stream::iter(retries)
             .buffer_unordered(PARALLEL)
             .collect()
             .await;

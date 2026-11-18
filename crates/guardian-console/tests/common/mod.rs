@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use guardian_console::backend::{Action, Backend, ConnState, Event, RealBackend};
+use guardian_console::backend::{Action, Backend, BackendOptions, ConnState, Event, RealBackend};
 use guardian_console::fleet::Fleet;
 use guardian_console::settings::Secret;
 use guardian_proto::v1::admin_client::AdminClient;
@@ -31,9 +31,13 @@ impl Console {
     }
 
     pub fn at(dir: tempfile::TempDir) -> Console {
+        Console::at_with(dir, BackendOptions::default())
+    }
+
+    pub fn at_with(dir: tempfile::TempDir, opts: BackendOptions) -> Console {
         let path = dir.path().join("console.toml");
         Console {
-            b: RealBackend::start(path.clone(), Box::new(|| {})),
+            b: RealBackend::start_with(path.clone(), Box::new(|| {}), opts),
             path,
             dir: Some(dir),
             seen: Mutex::new(Vec::new()),

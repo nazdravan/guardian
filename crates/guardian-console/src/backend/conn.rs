@@ -89,8 +89,20 @@ pub(crate) async fn login(core: Arc<Core>, login: String, password: Secret) {
         })
         .await
     {
-        Ok(r) => after_login(&core, &login, r.into_inner()),
-        Err(st) => core.emit(Event::Error(login_error_text(&st))),
+        Ok(r) => {
+            let r = r.into_inner();
+            if let Some(u) = &r.user {
+                *super::lock(&core.login_secret) = Some((u.id, password.clone()));
+                super::fallback::remember_login(&core, u, &password).await;
+            }
+            after_login(&core, &login, r);
+        }
+        Err(st) => {
+            if st.code() == Code::Unavailable {
+                super::fallback::server_unreachable(&core);
+            }
+            core.emit(Event::Error(login_error_text(&st)));
+        }
     }
 }
 

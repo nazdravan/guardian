@@ -5,6 +5,7 @@
 mod actions;
 mod conn;
 mod errors;
+mod fallback;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -12,7 +13,7 @@ use std::time::Duration;
 
 use futures_util::FutureExt;
 use guardian_client::Authed;
-use guardian_proto::v1::{EnrollCode, Profile, Role, Settings, User, WatchEvent};
+use guardian_proto::v1::{CachedUser, EnrollCode, Profile, Role, Settings, User, WatchEvent};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tonic::transport::Channel;
@@ -165,8 +166,60 @@ pub enum Action {
         new: Secret,
     },
 
+    /// Enroll this console for local fallback mode (`None`: an admin creates
+    /// the console code itself).
+    EnableFallback {
+        /// A console enrollment code.
+        code: Option<String>,
+    },
+    /// Sign in locally while the server cannot be reached.
+    FallbackLogin {
+        /// Login name.
+        login: String,
+        /// Password.
+        password: Secret,
+    },
+    /// The signed-in user starts working locally.
+    EnterFallback,
+    /// Stop working locally.
+    LeaveFallback,
+
     /// Stop everything (the window is closing).
     Shutdown,
+}
+
+/// Local fallback mode as the UI shows it.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FallbackState {
+    /// Not possible now (server reachable, embedded mode, or not enabled).
+    Off,
+    /// The server cannot be reached and someone may work locally.
+    Available,
+    /// Working directly with the computers.
+    Active {
+        /// Who works locally.
+        user: CachedUser,
+        /// Their rooms, as the computers answered.
+        fleet: Fleet,
+    },
+}
+
+/// Knobs for tests.
+#[derive(Debug, Clone)]
+pub struct BackendOptions {
+    /// Discovery targets (`None`: the broadcast addresses of this computer).
+    pub fallback_broadcast: Option<Vec<std::net::SocketAddr>>,
+    /// How often fallback mode asks every computer again.
+    pub fallback_sweep_every: Duration,
+}
+
+impl Default for BackendOptions {
+    fn default() -> BackendOptions {
+        BackendOptions {
+            fallback_broadcast: None,
+            fallback_sweep_every: Duration::from_secs(10),
+        }
+    }
 }
 
 /// The connection as the user sees it.
@@ -224,6 +277,10 @@ pub enum Event {
     /// Agents on other computers cannot reach the embedded server until this
     /// port is opened in the firewall (Windows).
     FirewallBlocked(u16),
+    /// Local fallback mode.
+    Fallback(FallbackState),
+    /// This console's id for local fallback (`None`: not enabled here).
+    FallbackEnabled(Option<i64>),
 }
 
 /// The UI's view of a backend.
@@ -247,9 +304,16 @@ pub(crate) struct Core {
     session: Mutex<Option<JoinHandle<()>>>,
     bootstrap: Mutex<Option<String>>,
     embedded: tokio::sync::Mutex<Option<(guardian_server::ServerHandle, u16)>>,
+    pub(crate) fallback: Mutex<fallback::Fb>,
+    pub(crate) opts: BackendOptions,
+    /// The signed-in user.
+    pub(crate) user: Mutex<Option<User>>,
+    /// The password of this session's own sign-in (never written), so that
+    /// enabling fallback right after can make the local verifier.
+    pub(crate) login_secret: Mutex<Option<(i64, Secret)>>,
 }
 
-fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+pub(crate) fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     match m.lock() {
         Ok(g) => g,
         Err(p) => p.into_inner(),
@@ -257,9 +321,31 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 impl Core {
-    pub(crate) fn emit(&self, e: Event) {
+    /// Sends an event without the fallback hooks.
+    pub(crate) fn send_event(&self, e: Event) {
         if self.events.send(e).is_ok() {
             (self.repaint)();
+        }
+    }
+
+    pub(crate) fn emit(&self, e: Event) {
+        let hook = match &e {
+            Event::Connection(st) => Some(st.clone()),
+            Event::LoggedIn(u) => {
+                *lock(&self.user) = Some(u.clone());
+                fallback::on_user(self, u);
+                None
+            }
+            Event::LoggedOut { .. } => {
+                *lock(&self.user) = None;
+                *lock(&self.login_secret) = None;
+                None
+            }
+            _ => None,
+        };
+        self.send_event(e);
+        if let Some(st) = hook {
+            fallback::on_connection(self, &st);
         }
     }
 
@@ -335,12 +421,14 @@ impl Core {
     }
 
     pub(crate) fn apply(&self, ev: WatchEvent) -> Fleet {
+        fallback::on_watch(self, &ev);
         let mut f = lock(&self.fleet);
         f.apply(ev);
         f.clone()
     }
 
     pub(crate) fn set_profiles(&self, ps: Vec<Profile>) -> Fleet {
+        fallback::on_profiles(self, &ps);
         let mut f = lock(&self.fleet);
         f.set_profiles(ps);
         f.clone()
@@ -379,6 +467,8 @@ impl Core {
         self.abort_session();
         *lock(&self.channel) = None;
         self.reset_fleet();
+        let remote = fallback::remote_server(self);
+        fallback::session_started(self, remote.as_deref());
         let c = self.clone();
         self.replace_session(tokio::spawn(conn::run_session(c, server, pin)));
     }
@@ -412,9 +502,20 @@ async fn handle(core: Arc<Core>, a: Action) {
         Action::ForgetMode => {
             core.abort_session();
             stop_embedded(&core).await;
+            fallback::forget(&core);
             core.forget_mode();
             core.reset_fleet();
             core.emit(Event::Connection(ConnState::Disconnected));
+        }
+        Action::EnableFallback { code } => fallback::enable(core, code).await,
+        Action::FallbackLogin { login, password } => fallback::login(core, login, password).await,
+        Action::EnterFallback => fallback::enter(core),
+        Action::LeaveFallback => fallback::leave(&core),
+        Action::SetRoomProfile {
+            room_id,
+            profile_id,
+        } if fallback::is_active(&core) => {
+            fallback::set_room_profile(core, room_id, profile_id).await;
         }
         Action::Shutdown => {}
         other => actions::run(core, other).await,
@@ -530,6 +631,15 @@ impl std::fmt::Debug for RealBackend {
 impl RealBackend {
     /// Starts the backend thread. `repaint` is called after every event.
     pub fn start(settings_path: PathBuf, repaint: Repaint) -> RealBackend {
+        RealBackend::start_with(settings_path, repaint, BackendOptions::default())
+    }
+
+    /// [`RealBackend::start`] with other options (tests).
+    pub fn start_with(
+        settings_path: PathBuf,
+        repaint: Repaint,
+        opts: BackendOptions,
+    ) -> RealBackend {
         let (atx, mut arx) = mpsc::unbounded_channel::<Action>();
         let (etx, erx) = std::sync::mpsc::channel();
         let (dtx, drx) = std::sync::mpsc::channel();
@@ -566,6 +676,10 @@ impl RealBackend {
                     session: Mutex::new(None),
                     bootstrap: Mutex::new(None),
                     embedded: tokio::sync::Mutex::new(None),
+                    fallback: Mutex::new(fallback::Fb::default()),
+                    opts,
+                    user: Mutex::new(None),
+                    login_secret: Mutex::new(None),
                 });
                 rt.block_on(async {
                     while let Some(a) = arx.recv().await {
@@ -580,7 +694,11 @@ impl RealBackend {
                             | Action::StartEmbedded { .. }
                             | Action::StopEmbedded
                             | Action::ForgetMode
-                            | Action::OpenFirewall => guarded(core.clone(), a).await,
+                            | Action::OpenFirewall
+                            | Action::EnableFallback { .. }
+                            | Action::FallbackLogin { .. }
+                            | Action::EnterFallback
+                            | Action::LeaveFallback => guarded(core.clone(), a).await,
                             other => {
                                 tokio::spawn(guarded(core.clone(), other));
                             }

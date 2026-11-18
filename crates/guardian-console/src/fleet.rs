@@ -97,6 +97,16 @@ impl Fleet {
         }
     }
 
+    /// The rooms as received.
+    pub fn raw_rooms(&self) -> Vec<Room> {
+        self.rooms.values().cloned().collect()
+    }
+
+    /// The computers as received.
+    pub fn raw_computers(&self) -> Vec<Computer> {
+        self.computers.values().cloned().collect()
+    }
+
     /// Per-computer texts that replace the connection text.
     pub fn set_notes(&mut self, notes: BTreeMap<u64, String>) {
         self.notes = notes;
