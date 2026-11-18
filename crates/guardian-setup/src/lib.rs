@@ -7,4 +7,5 @@
 #[cfg(feature = "testing")]
 pub mod fake;
 pub mod host;
+pub mod lifecycle;
 pub mod model;
