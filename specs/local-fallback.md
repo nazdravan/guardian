@@ -3,8 +3,8 @@
 Status: stage 3b of [`2026-11-17-rust-rewrite-design.md`](2026-11-17-rust-rewrite-design.md) (§11), implemented on
 branch `rust-rewrite` (plan: [`plans/2026-11-18-rust-3-stage3b-local-fallback.md`](plans/2026-11-18-rust-3-stage3b-local-fallback.md)).
 When the internet (or the server) is down, a teacher switches a room's profile from the console directly over the
-school network. Server: [`server-v3.md`](server-v3.md); agent: [`agent-v3.md`](agent-v3.md); console:
-[`console-v3.md`](console-v3.md).
+school network. Server: [`server.md`](server.md); agent: [`agent.md`](agent.md); console:
+[`console.md`](console.md).
 
 ## When
 

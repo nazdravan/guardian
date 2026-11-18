@@ -30,7 +30,7 @@
 
 **Spec:**
 - [`specs/2026-11-17-rust-rewrite-design.md`](../2026-11-17-rust-rewrite-design.md): §11 (tot), §8.2 (`allowed_offline`), §8.3 (excepția are prioritate), §9.6 (în modul încorporat rezerva nu intră în joc), §10.2 (offline = 60 s), §14 punctul 3.
-- Ce există deja: [`server-v3.md`](../server-v3.md), [`agent-v3.md`](../agent-v3.md), [`console-v3.md`](../console-v3.md).
+- Ce există deja: [`server.md`](../server.md), [`agent.md`](../agent.md), [`console.md`](../console.md).
 - Serverul din etapa 1 are deja:
   - `Auth.EnrollConsole`, cu un cod `ENROLL_CONSOLE`, fără sesiune;
   - `Admin.ListConsoles` / `RevokeConsole`;
@@ -560,16 +560,16 @@
 
 **Files:**
 - Modify: `.github/workflows/rust.yml` (jobul `linux` rulează și `real_fallback`; jobul `windows` rulează testele `guardian-local` și `guardian-agent --test listener`)
-- Create: `specs/local-fallback-v3.md`
+- Create: `specs/local-fallback.md`
 - Modify:
-  - `specs/agent-v3.md` (listener-ul, `local.pb`, `local_port`);
-  - `specs/console-v3.md` (fereastra, cache-ul, fișierele noi în tabel; scoate limitarea care nu mai e adevărată);
-  - `specs/server-v3.md` (`LocalAudit` / `LocalAuditAck`, `Computer.public_key`, `AgentState.exception_profile_id`);
+  - `specs/agent.md` (listener-ul, `local.pb`, `local_port`);
+  - `specs/console.md` (fereastra, cache-ul, fișierele noi în tabel; scoate limitarea care nu mai e adevărată);
+  - `specs/server.md` (`LocalAudit` / `LocalAuditAck`, `Computer.public_key`, `AgentState.exception_profile_id`);
   - `specs/2026-11-17-rust-rewrite-design.md` §14 (nota „3b făcută pe <data>”);
   - `AGENTS.md` (tabelul crate-urilor: `guardian-local`; etapa 3b făcută);
   - `/Users/poligon/Projects/PROJECTS.md` (secțiunea Guardian și data de sus).
 
-- [ ] **Step 1:** Scrie `local-fallback-v3.md`, cu secțiunile:
+- [ ] **Step 1:** Scrie `local-fallback.md`, cu secțiunile:
   - când se activează;
   - cheile și canalul (Noise IK, conversia cheilor, limitele);
   - descoperirea;

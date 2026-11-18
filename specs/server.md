@@ -1,264 +1,179 @@
-# Server Architecture Specification
+# Guardian 3.0 Server (Rust)
 
-## Overview
+Status: stage 1 of [`2026-11-17-rust-rewrite-design.md`](2026-11-17-rust-rewrite-design.md), implemented on
+branch `rust-rewrite` (plan: [`plans/2026-11-17-rust-3-stage1-server.md`](plans/2026-11-17-rust-3-stage1-server.md)).
+No compatibility with 2.x: new protocol, new database, fresh install.
 
-The ProcSentinel server is a Go REST API for managing applications, computer status, and client commands. It uses SQLite for persistence, in-memory caches for fast reads, and chi for HTTP routing.
+## Crates
 
-## File Structure
+| Crate | Role |
+|---|---|
+| `guardian-proto` | `proto/guardian/v1/*.proto` compiled with `protox` (no `protoc`): prost types, tonic stubs, `FILE_DESCRIPTOR_SET` for reflection |
+| `guardian-core` | OS- and network-free logic: profiles and the effective-profile rule, protected process lists, the kill/allow decision, ed25519 challenge keys, enrollment codes, feature registry |
+| `guardian-server` | Library (`start(ServerConfig) -> ServerHandle`) + binary `guardian-server` |
+| `guardian-client` | TLS with optional certificate pin, gRPC channel, bearer-token interceptor, WebSocket connector |
+| `guardian-cli` | `guardian-cli`, the admin/teacher command line |
 
-The server lives in the importable package `server/guardian`, so the Linux binary and the
-Windows app Guardian Server (`tools/server-gui`) run the same code.
+`.proto` files are the contract. `guardian-core` is the only place policy logic lives (server, agent and
+console all call it).
 
-| File                     | Purpose                                        |
-|--------------------------|-------------------------------------------------|
-| `main.go`                | Linux entry point: `.env` loading, `configFromEnv()`, listen address, graceful shutdown |
-| `guardian/server.go`     | `Server` struct, `Config{DBPath, ClientToken, AdminToken}`, `New`, `Handler`, `Close` |
-| `guardian/models.go`     | Request/response structs                        |
-| `guardian/db.go`         | Database init, schema, migrations, cache loading, queries |
-| `guardian/handlers.go`   | HTTP handler functions                          |
-| `guardian/routes.go`     | Chi router setup, middleware wiring             |
-| `guardian/middleware.go` | Auth middleware (constant-time token compare); tokens come from `Config` |
-| `guardian/helpers.go`    | Utilities: JSON writer, `LocalIP()`             |
-| `*_test.go`              | `go test ./...`: auth tiers, fallback tokens, computer updates |
+## Server modules (`crates/guardian-server/src`)
 
-`configFromEnv()` keeps the old behaviour: `./guardian.db`, `TOKEN` / `ADMIN_TOKEN` from the
-environment, falling back to the built-in default token when unset.
+| Module | Purpose |
+|---|---|
+| `lib.rs` | `start()`, `ServerHandle` (`local_addr`, `bootstrap_code`, `cert_sha256`, `state`, `shutdown`), background tasks |
+| `config.rs` | `ServerConfig` (data dir, listen, TLS mode, timeouts, auth rate), `TlsMode` |
+| `db/` | `Db { read, write }`, migrations, one file per table group |
+| `batch.rs` | `Batcher`: command results + audit entries written every 500 ms or 100 items, one transaction per batch |
+| `auth.rs` | argon2id, session tokens, `Caller`, per-IP `RateLimiter`, login/password rules |
+| `state.rs` | `AppState` and the hooks `policy_changed`, `trust_changed`, `computer_revoked`, command delivery/results/expiry |
+| `hub.rs` | connected agents (`Hub`), `HubEvent` bus for `Watch`, `build_agent_state`, `build_trust` |
+| `ws.rs` | `/agent/ws`: enrollment, challenge handshake, connection loop |
+| `grpc/` | `Auth`, `Admin` (+ `admin_users`, `admin_computers`), `Control` (+ `commands`), `Watch` |
+| `tls.rs` | certificate from files or self-signed (rcgen), SHA-256 pin |
+| `net.rs` | one listener: optional TLS (ALPN `h2` + `http/1.1`), hyper-util auto (HTTP/2 for gRPC, HTTP/1.1 upgrade for WebSocket) |
+| `retention.rs` | daily pruning |
+| `testing.rs` | feature `testing`: `TestServer`, `SimAgent` |
+| `main.rs`, `service_windows.rs` | binary, clap options, Windows service |
 
-## Core Struct
+## Database (`migrations/0001_init.sql`)
 
-```go
-type Server struct {
-    mu           sync.RWMutex
-    db           *sql.DB
-    appsCache    map[string]Application
-    enabledCache bool
-    modeCache    string
-    clientCache  map[string]bool
-    clientToken  string
-    adminToken   string
-}
+Tables: `users`, `sessions`, `profiles`, `profile_apps`, `rooms`, `user_rooms`, `settings` (single row:
+`default_profile_id`, `retention_days`, `state_version`), `computers`, `consoles`, `enroll_codes`,
+`commands` (payload = encoded `CommandEnvelope`), `command_targets` (status `pending`, `delivered`, `ok`,
+`failed`, `no_user`, `unsupported`, `expired`), `audit_log`. All times are Unix seconds.
+
+IO rules: one writer connection, a 4-connection read-only pool, `journal_mode=WAL`, `synchronous=NORMAL`,
+`busy_timeout=5000`, `auto_vacuum=INCREMENTAL`, `foreign_keys=ON`. `last_seen` is written on connect, on
+disconnect and at most every 5 minutes; "online" comes from the hub. Final command statuses are never
+overwritten.
+
+First start seeds "Liber" (`free`), "Lecție" (`blacklist`) and "Examen" (`whitelist`); the school default
+is "Lecție". With no user yet, a one-time **bootstrap code** is generated and logged.
+
+## Accounts and roles
+
+- `Auth.Init` (bootstrap code, once), `Login`, `Logout`, `ChangePassword` (ends other sessions), `WhoAmI`,
+  `EnrollConsole`. Login errors never reveal which part was wrong; unknown logins still cost one argon2.
+- Sessions: 32 random bytes (base64url), stored as SHA-256, valid 7 days. The caller and their rooms are
+  re-read from the database on every call.
+- Rate limit: `Init`, `Login`, `EnrollConsole` and agent enrollment are refused for an IP after **10
+  failed attempts** in the last minute; successful attempts do not count, so a room enrolling behind one
+  NAT/proxy address, or every teacher logging in, is never blocked.
+
+| RPC | Who |
+|---|---|
+| `Admin.*` | admin |
+| `Control.SetRoomProfile`, `Control.SendCommand` | admin, or a teacher for their rooms (every target must be in them) |
+| `Control.GetCommand` | admin, or the teacher who sent it |
+| `Watch.Watch` | any user; teachers see only their rooms, admins also see computers without a room |
+
+Validation: logins `[a-z0-9._-]` 3–32; passwords ≥ 8; room/profile names 1–64, unique; app names
+`[A-Za-z0-9 ._-]` 3–64, lowercased; a profile in use (room, exception, school default) cannot be deleted;
+the last active admin cannot be demoted or disabled.
+
+## Enrollment codes
+
+8 characters from `ABCDEFGHJKMNPQRSTVWXYZ23456789`, compared ignoring case, spaces and `-`. Agent code
+without a room: 1 use, 15 min. Room code: 1–500 uses (required), TTL 60 s–7 days (default 24 h). Console
+code: 1 use, 15 min. Consumption is one atomic `UPDATE … RETURNING`. Unknown, used and expired codes all
+answer `invalid or expired enrollment code`.
+
+## Agent WebSocket protocol (`/agent/ws`)
+
+Every binary message is one protobuf frame (`AgentFrame` / `ServerFrame`), at most 1 MiB.
+
+1. The handshake must finish within 10 s.
+2. `Enroll{code, public_key, info}`: rate limited; the key must be valid and new and the code valid
+   (otherwise `ServerError{invalid_code}`); the computer is created in the code's room; reply
+   `Enrolled{computer_id}`, then continue at step 3.
+3. `Hello{computer_id, protocol_version, capabilities, info}`: version ≠ 1 → `protocol`; unknown id →
+   `unauthorized`; otherwise `Challenge{nonce: 32 bytes}`.
+4. `ChallengeResponse{signature}` over `"guardian/v1/agent-auth" ‖ nonce ‖ computer_id (u64 LE)`, verified
+   strictly; failure → `unauthorized`.
+5. The connection replaces any previous one for that id (the old socket is closed; the computer never
+   appears offline). The server sends `Welcome{state, pending, consoles, users}` first; `pending` holds
+   unexpired commands not yet finished for this computer that its capabilities support — `pending` ones
+   and also `delivered` ones (the previous connection may have died before reading them), so **agents
+   must dedupe commands by id**. Unsupported pending ones become `unsupported`.
+   `State.version` is read before the state's data, so an agent that applies only a strictly newer
+   version always converges on the latest policy.
+6. Loop: ping every 20 s, dropped after 60 s without traffic. `State` (on any policy change, with a
+   higher `version`), `TrustUpdate` (consoles + authorized users: active admins and the room's teachers),
+   `Command` are pushed; the agent sends `CommandResult` (`ok`, `failed`, `no_user`, `unsupported` only,
+   and only for commands targeting it).
+7. Revocation: `ServerError{revoked}`, the socket closes, the key is no longer accepted.
+8. `LocalAudit{entries}` (after local fallback mode): at most 1000 entries per frame go to `audit_log` with
+   `source = 'local'`, the action's own time, `target = computer:<id>`, texts cut to 200 characters; the server
+   answers `LocalAuditAck{up_to_seq}` once they are queued for writing. A lost ack makes the agent send them
+   again (possible duplicate rows).
+
+`AgentState.exception_profile_id` tells the agent it has its own profile (a local room switch must not
+override it), and `Computer.public_key` (Admin and `Watch`) gives consoles the agents' keys for the local
+channel. See [`local-fallback.md`](local-fallback.md).
+
+The list of peer computers in `Welcome` (spec §9.4) is not sent: nothing consumes it before stage 3.
+
+## Commands
+
+`SendCommand` targets a room or a list of computer ids. Arguments are validated (message title ≤ 100, text
+1–2000; program path 1–1024, ≤ 32 args; site URL `http(s)://` ≤ 2048; countdown 0–3600). TTL default
+600 s, max 86400 s. Per target: online with the feature → sent (`delivered`); online without it →
+`unsupported`; offline → `pending` (re-checked right after the rows are written, in case the agent
+connected meanwhile). Every 10 s unfinished targets of expired commands become `expired`; an
+agent that comes back later does not get them.
+
+## Watch
+
+First event: `Snapshot` (visible rooms, their computers with `online` and effective profile, all
+profiles); then `Computer`, `Room`, `ComputerResultEvent`, `computer_removed`, `room_removed`, filtered to
+what the user may see. When the user's rooms or role change, the stream re-reads them and sends a new
+`Snapshot`; a disabled user or expired session ends the stream with `UNAUTHENTICATED`. If the stream falls
+behind the event bus it gets a fresh `Snapshot`.
+
+## Network and TLS
+
+One port (default **8443**) for gRPC and WebSocket. `TlsMode::Files` (PEM), `SelfSigned` (generated once
+in `data_dir/tls/`, key `0600`, valid 10 years, for `localhost`, `127.0.0.1` and the hostname) or
+`InsecurePlaintext` (tests / behind a TLS proxy only). The pin is the lowercase SHA-256 hex of the served
+certificate. `guardian-client` accepts either the system roots or exactly the pinned certificate (names
+and chain ignored, handshake signature still checked).
+
+## Binary
+
+```
+guardian-server [--data-dir DIR] [--listen ADDR] [--tls-cert PEM --tls-key PEM]
+                [--insecure-plaintext] [--log FILTER]
+guardian-server service install|uninstall|run        # Windows only
 ```
 
-All state access is serialized through `sync.RWMutex`. Reads acquire `RLock`, writes acquire full `Lock`.
+Environment: `GUARDIAN_DATA_DIR`, `GUARDIAN_LISTEN`, `GUARDIAN_TLS_CERT`, `GUARDIAN_TLS_KEY`,
+`GUARDIAN_INSECURE_PLAINTEXT=1`, `GUARDIAN_LOG`. Defaults: data dir `/var/lib/guardian` (Linux) or
+`%ProgramData%\Guardian Server` (Windows), listen `0.0.0.0:8443`, self-signed TLS. Logs (stderr) always
+contain `listening on <addr>`, `certificate sha256: <hex>` and, until the first admin exists,
+`bootstrap code: <code>`. SIGINT/SIGTERM or a service stop shut it down cleanly.
 
-## Database Schema
+- Linux: `packaging/server-linux/guardian-server.service` (user `guardian`, `StateDirectory=guardian`,
+  `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, `CAP_NET_BIND_SERVICE`) and
+  `install.sh` (idempotent; prints the pin and bootstrap code from the journal).
+- Windows: `service install` gives the data directory a protected ACL (SYSTEM + Administrators only),
+  registers `GuardianServer` (automatic start, LocalSystem) with the current options and adds the
+  firewall rule `Guardian Server` for the port; `uninstall` removes service and rule. As a service the
+  log goes to `<data dir>\guardian-server.log` (pin and bootstrap code are there); the service reports
+  Running only once the port is bound, and stops with a non-zero exit code if start-up fails. Install
+  from an admin-only folder such as `Program Files`: the service runs that exe as LocalSystem.
 
-**SQLite file:** `./guardian.db`
+## Retention
 
-**Connection settings** (`openDatabase` in `guardian/db.go`, applied to every pooled
-connection through the DSN): `busy_timeout(5000)` and `journal_mode(WAL)`. Agents write
-their last sync on every `/client/sync` while the phone or the Windows window read; without
-a busy timeout such a write fails at once with `SQLITE_BUSY` ("Failed to update database"),
-and WAL lets readers and the writer proceed side by side. WAL keeps `guardian.db-wal` and
-`guardian.db-shm` next to the database; back up all three, or stop the server first.
+Daily (first run one minute after start): finished commands and audit entries older than
+`retention_days` (default 90), expired or used-up codes, expired sessions; then `PRAGMA
+incremental_vacuum`. Commands with a `pending`/`delivered` target are kept.
 
-### `applications`
-| Column     | Type     | Notes                          |
-|------------|----------|--------------------------------|
-| id         | INTEGER  | PRIMARY KEY AUTOINCREMENT      |
-| name       | TEXT     | NOT NULL                       |
-| enabled    | BOOLEAN  | DEFAULT 1                      |
-| mode       | TEXT     | NOT NULL, DEFAULT 'blacklist'  |
-| created_at | DATETIME | DEFAULT CURRENT_TIMESTAMP      |
+## Safety properties
 
-Constraint: `UNIQUE(name, mode)` — same app name can exist in both blacklist and whitelist modes.
-Index: `idx_apps_name_mode` on `(name, mode)`
-
-Mode values: `blacklist` (kill matching processes) or `whitelist` (kill everything except matching processes).
-
-### `server`
-| Column     | Type     | Notes                            |
-|------------|----------|----------------------------------|
-| id         | INTEGER  | PRIMARY KEY, CHECK (id = 1)      |
-| enabled    | BOOLEAN  | DEFAULT 0                        |
-| mode       | TEXT     | NOT NULL, DEFAULT 'blacklist'    |
-| updated_at | DATETIME | DEFAULT CURRENT_TIMESTAMP        |
-
-Single-row table (id always 1). Controls whether the server is "active" and which mode (blacklist/whitelist) is in effect.
-
-### `client`
-| Column     | Type     | Notes                          |
-|------------|----------|--------------------------------|
-| id         | INTEGER  | PRIMARY KEY AUTOINCREMENT      |
-| name       | TEXT     | UNIQUE NOT NULL                |
-| status     | BOOLEAN  | DEFAULT 1                      |
-| created_at | DATETIME | DEFAULT CURRENT_TIMESTAMP      |
-| updated_at | DATETIME | DEFAULT CURRENT_TIMESTAMP      |
-
-Index: `idx_client_name` on `(name)`
-Seeded with `('power', 1)` on init.
-
-### `computers`
-| Column   | Type     | Notes                          |
-|----------|----------|--------------------------------|
-| identity | INTEGER  | PRIMARY KEY                    |
-| blocked  | BOOLEAN  | DEFAULT 0                      |
-| datetime | DATETIME | DEFAULT CURRENT_TIMESTAMP      |
-
-Index: `idx_computers_identity` on `(identity)`
-
-## Database Migration
-
-On startup, the server checks for an old `idx_apps_name` index (from the previous `UNIQUE(name)` constraint). If found, it recreates the `applications` table with the new `UNIQUE(name, mode)` constraint in a transaction.
-
-## Caching Strategy
-
-On startup, the server loads all data from SQLite into in-memory structures:
-- `appsCache` — full `Application` structs keyed by `"name:mode"` (id, name, enabled, mode)
-- `enabledCache` — server enabled/disabled flag
-- `modeCache` — server mode (blacklist/whitelist)
-- `clientCache` — client entry name-to-status map
-
-**Write-through:** Every mutation updates both the cache and the database within the same lock scope. The client sync endpoint serves directly from the cache without hitting SQLite.
-
-## Startup Behavior
-
-1. Load `.env` file if present
-2. Open SQLite database (`./guardian.db`)
-3. Create tables if not exist (idempotent)
-4. Run migrations if needed
-5. Load all data into caches
-6. Start HTTP server with graceful shutdown support
-
-The server preserves its enabled/disabled state across restarts (reads from database). The database defaults to `enabled = 0` on first run.
-
-## Graceful Shutdown
-
-The server listens for `SIGINT`/`SIGTERM` and shuts down with a 5-second timeout, allowing in-flight requests to complete and ensuring the database connection is closed cleanly.
-
-## Authentication
-
-Two tiers of Bearer token auth implemented as chi middleware with constant-time comparison:
-
-| Middleware    | Env Var       | Fallback Token                         | Used By               |
-|---------------|---------------|----------------------------------------|----------------------|
-| `ClientAuth`  | `TOKEN`       | `mILp9n6shk3G9SGSaS2nmP6YlLHwsP1Z`   | Agent/client endpoints|
-| `AdminAuth`   | `ADMIN_TOKEN` | `mILp9n6shk3G9SGSaS2nmP6YlLHwsP1Z`   | Management endpoints  |
-
-Header format: `Authorization: Bearer <token>`
-
-## API Endpoints
-
-### Unauthenticated
-
-#### `GET /health`
-Returns `{"status": "ok"}`. No auth required (suitable for load balancer probes).
-
-### Client Endpoints (TOKEN auth)
-
-#### `GET /client/sync`
-Returns the full state an agent needs: applications filtered by current mode, server mode, and client entries.
-
-**Query params:**
-- `identity` (optional) — integer computer ID. When provided, the server:
-  1. Checks if that computer is blocked
-  2. Updates the computer's `datetime` (heartbeat)
-
-**Response:**
-```json
-{
-  "applications": [{"name": "firefox", "mode": "blacklist"}],
-  "mode": "blacklist",
-  "client": [{"name": "power", "status": true}]
-}
-```
-
-**Logic:**
-- If server is disabled OR computer has `blocked: false` → `applications` and `client` arrays are empty, mode is `"free"`
-- If active → returns only enabled applications whose `mode` matches the server's current mode
-- `mode` — the server's current mode, or `"free"` if disabled/unblocked
-- `client` — client entries (e.g. power status) for the agent to act on
-
-### Management Endpoints (ADMIN_TOKEN auth)
-
-#### `GET /manage/applications`
-Returns all applications with full details (id, name, enabled, mode). Always returns the complete list regardless of server enabled state.
-
-#### `POST /manage/applications`
-Add a new application. Body: `{"name": "app.exe", "mode": "blacklist"}`. Mode defaults to `blacklist` if omitted. Returns 201 on success.
-
-#### `PUT /manage/applications`
-Update an application's enabled state. Body: `{"name": "app.exe", "enabled": true|false|0|1, "mode": "whitelist"}`. The `enabled` field accepts both boolean and numeric types. Mode is optional — used to find the specific entry.
-
-#### `DELETE /manage/applications`
-Remove an application. Body: `{"name": "app.exe", "mode": "blacklist"}`. If mode is omitted, removes all entries with that name.
-
-#### `DELETE /manage/applications/reset`
-Remove all applications.
-
-#### `GET /status`
-Returns `{"enabled": bool, "mode": "blacklist|whitelist"}`.
-
-#### `PUT /status`
-Set server enabled/disabled and/or mode. Body: `{"enabled": true, "mode": "whitelist"}`. Mode is optional — only updated if provided.
-
-#### `GET /info`
-Returns server IP (auto-detected), port (`8080`), version (`1.0.0`), status, and mode.
-
-#### `GET /client`
-Returns all client entries as `{"entries": [{"name": "power", "status": true}]}`.
-
-#### `PUT /client`
-Create or update a client entry. Body: `{"name": "power", "status": false}`.
-
-#### `GET /manage/computers`
-Returns all computers with identity, blocked status, last-seen datetime, and current server time.
-
-#### `PUT /manage/computers`
-Update a computer's blocked status. Body: `{"identity": 1, "blocked": true}`. Upsert that changes only `blocked`, so the last-sync `datetime` is kept.
-
-#### `DELETE /manage/computers/reset`
-Unblock all computers (set `blocked = 0`).
-
-#### `PUT /manage/computers/block_all`
-Block all computers (set `blocked = 1`).
-
-## Configuration
-
-Loaded from `.env` file in working directory. Environment variables take precedence over `.env` values.
-
-| Variable         | Purpose                                      | Default                     |
-|------------------|----------------------------------------------|-----------------------------|
-| `SERVER_ADDRESS` | Listen address (full URL or `host:port`)     | `0.0.0.0:8080`             |
-| `TOKEN`          | Client/agent auth token                      | hardcoded fallback          |
-| `ADMIN_TOKEN`    | Management auth token                        | hardcoded fallback          |
-
-## HTTP Server Settings
-
-| Setting        | Value      |
-|----------------|------------|
-| Read timeout   | 15 seconds |
-| Write timeout  | 15 seconds |
-| Idle timeout   | 60 seconds |
-
-## Deployment
-
-- Ships in `server-linux/` of the release archive (`scripts/package.sh`, templates in `packaging/server-linux/`)
-- `install.sh` installs to `/usr/local/bin/guardian/` as the `guardian-server` systemd service; it writes `.env` from `server.env` only on first install, so upgrades keep the tokens
-- Built static: `CGO_ENABLED=0 GOOS=linux GOARCH=amd64`
-- Database file created in working directory (`./guardian.db`)
-- Listens on port 8080 by default
-- No CGO required (`modernc.org/sqlite` is pure Go)
-
-## Key Dependencies
-
-| Package                  | Purpose                        |
-|--------------------------|--------------------------------|
-| `modernc.org/sqlite`     | Pure-Go SQLite driver          |
-| `github.com/go-chi/chi`  | HTTP router with method routing|
-| `github.com/go-chi/cors` | CORS middleware                |
-| `log/slog` (stdlib)      | Structured JSON logging        |
-
-## Key Design Decisions
-
-1. **Multi-file layout** — split by concern: models, db, handlers, routes, middleware, helpers
-2. **Write-through cache** — mutations update both cache and DB under lock; reads served from cache
-3. **Dual auth tiers** — agents use a simpler token; management uses an admin token
-4. **Constant-time token comparison** — prevents timing side-channel attacks
-5. **Unauthenticated health check** — for load balancer and monitoring probes
-6. **CORS enabled** — allows cross-origin requests from web and mobile clients
-7. **Graceful shutdown** — clean connection drain on SIGINT/SIGTERM
-8. **Computer heartbeat** — agents report identity on each poll, server tracks last-seen time
-9. **Mode-filtered sync** — `/client/sync` only returns apps matching the server's current mode
-10. **Computer-gated sync** — unblocked computers (`blocked: false`) receive empty applications and client arrays
-11. **UNIQUE(name, mode)** — same app can exist in both blacklist and whitelist lists independently
+- Fail-secure defaults: the school default is "Lecție", never "Liber"; a revoked agent keeps its last state.
+- Every authorization check runs on the server, on every call, from the database.
+- Constant-time comparison for the bootstrap code; tokens are compared by SHA-256 lookup.
+- Message limits: 1 MiB WebSocket, 4 MiB gRPC.
+- `cargo deny` ignores RUSTSEC-2026-0459 (bundled SQLite in `libsqlite3-sys` < 0.39, pinned by sqlx 0.9):
+  it needs a database file written by a less trusted party, and the server opens only its own.

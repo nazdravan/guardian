@@ -108,8 +108,8 @@ cd mobile && flutter pub run flutter_launcher_icons
 ## Guardian 3.0 (Rust, in progress)
 
 A clean rewrite on branch `rust-rewrite` (spec: `specs/2026-11-17-rust-rewrite-design.md`; server:
-`specs/server-v3.md`; agent: `specs/agent-v3.md`; console: `specs/console-v3.md`; local fallback:
-`specs/local-fallback-v3.md`; plans in `specs/plans/`).
+`specs/server.md`; agent: `specs/agent.md`; console: `specs/console.md`; local fallback:
+`specs/local-fallback.md`; plans in `specs/plans/`).
 The Go code above stays until the 3.0 release. Stage 1 (server + CLI), stage 2 (agent + worker, Linux and
 Windows), stage 3a (the egui console) and stage 3b (local fallback mode: Noise channel on port 11500, LAN
 discovery, local room-profile switch) are done; stage 3c (`guardian-setup`, release archive, removing the Go
@@ -151,7 +151,7 @@ Rules: the `.proto` files are the contract (field numbers never change); `guardi
 policy logic lives; libraries are `#![forbid(unsafe_code)]`; no `unwrap`/`expect`/`panic` outside tests
 (the single exception is `guardian_core::random::random_bytes`); dependencies must pass `cargo deny`
 (no GPL/MPL); `unsafe` only in `guardian-platform/src/windows/ffi_*.rs`. Linux packaging:
-`packaging/server-linux-v3/`, `packaging/agent-linux-v3/`. CI: `.github/workflows/rust.yml`.
+`packaging/server-linux/`, `packaging/agent-linux/`. CI: `.github/workflows/rust.yml`.
 
 ## Key Dependencies
 

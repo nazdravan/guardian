@@ -27,7 +27,7 @@
 - [`specs/2026-11-17-rust-rewrite-design.md`](../2026-11-17-rust-rewrite-design.md): §8.1 (`guardian-setup`), §8.3 (`whitelist.txt` generat de setup la instalare), §10.3 (reînrolarea din `guardian-setup`), §11.3 (installer-ul deschide portul doar pentru rețeaua locală), §14 punctul 3 (forma arhivei), §17 (documentația).
 - Arhitectura setup-ului: `git show rust:specs/2026-10-09-console-architecture-design.md`, adaptată la agentul Rust: fără `contract.json` (contractul e chiar `guardian-agent`/`guardian-core`), fără `.env`.
 - Cel de înlocuit: `tools/whitelist-gui` ([`specs/whitelist-gui.md`](../whitelist-gui.md)).
-- Starea de acum: [`agent-v3.md`](../agent-v3.md), [`console-v3.md`](../console-v3.md), [`server-v3.md`](../server-v3.md), [`local-fallback-v3.md`](../local-fallback-v3.md).
+- Starea de acum: [`agent.md`](../agent.md), [`console.md`](../console.md), [`server.md`](../server.md), [`local-fallback.md`](../local-fallback.md).
 
 ## Înainte de a începe
 
@@ -463,7 +463,7 @@
 
 **Files:**
 - Rename/rewrite:
-  - `specs/server-v3.md` → `specs/server.md`, `specs/agent-v3.md` → `specs/agent.md`, `specs/console-v3.md` → `specs/console.md`, `specs/local-fallback-v3.md` → `specs/local-fallback.md`; legăturile dintre ele se actualizează;
+  - `specs/server.md` → `specs/server.md`, `specs/agent.md` → `specs/agent.md`, `specs/console.md` → `specs/console.md`, `specs/local-fallback.md` → `specs/local-fallback.md`; legăturile dintre ele se actualizează;
   - `specs/api.md` se rescrie ca referință gRPC: fiecare serviciu și RPC din `proto/guardian/v1/api.proto`, cu rolul cerut și erorile, plus protocolul WebSocket pe scurt, cu trimitere la `server.md`.
 - Create: `specs/setup.md` (`guardian-setup`: operațiile, CLI, codurile de ieșire, căile, legacy, pașii manuali pe Windows)
 - Delete: `specs/whitelist-gui.md`, `specs/2026-11-13-windows-server-gui-design.md` (decizia 13)

@@ -2,8 +2,8 @@
 
 Status: stage 3a of [`2026-11-17-rust-rewrite-design.md`](2026-11-17-rust-rewrite-design.md) (§9.6, §14 point 3),
 implemented on branch `rust-rewrite` (plan: [`plans/2026-11-18-rust-3-stage3a-console.md`](plans/2026-11-18-rust-3-stage3a-console.md)).
-It replaces `tools/server-gui` (Go). It talks to the server of [`server-v3.md`](server-v3.md); agents are
-described in [`agent-v3.md`](agent-v3.md). The UI is in English.
+It replaces `tools/server-gui` (Go). It talks to the server of [`server.md`](server.md); agents are
+described in [`agent.md`](agent.md). The UI is in English.
 
 ## Layers (`crates/guardian-console`)
 
@@ -44,7 +44,7 @@ screen.
 **Work locally (fallback mode)…** and a signed-in user gets a banner with **Work locally (fallback mode)**; in
 fallback mode the room cards come from the computers' own answers, free profiles are not offered, admin tabs
 are hidden and the banner says changes are undone when the server is back. See
-[`local-fallback-v3.md`](local-fallback-v3.md).
+[`local-fallback.md`](local-fallback.md).
 
 ## Modes
 

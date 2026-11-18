@@ -8,13 +8,13 @@
 
 **Tech Stack:** cele din etapa 1, plus `nix` (Linux: semnale, netlink), `windows` 0.62 (Toolhelp, procese, WTS, named pipe), `ferrisetw` 1.2 (ETW), `windows-service` 0.8, `if-addrs` (adrese LAN), `serde` + `toml` (config). Teste: `guardian-server` cu feature `testing` (`TestServer`), `tempfile`.
 
-**Spec:** [`specs/2026-11-17-rust-rewrite-design.md`](../2026-11-17-rust-rewrite-design.md) §8.1, §8.2, §8.4, §10, §14 punctul 2. Serverul cu care vorbește agentul: [`specs/server-v3.md`](../server-v3.md) (protocolul WebSocket, pașii 1–7). Etapa 1: [`2026-11-17-rust-3-stage1-server.md`](2026-11-17-rust-3-stage1-server.md).
+**Spec:** [`specs/2026-11-17-rust-rewrite-design.md`](../2026-11-17-rust-rewrite-design.md) §8.1, §8.2, §8.4, §10, §14 punctul 2. Serverul cu care vorbește agentul: [`specs/server.md`](../server.md) (protocolul WebSocket, pașii 1–7). Etapa 1: [`2026-11-17-rust-3-stage1-server.md`](2026-11-17-rust-3-stage1-server.md).
 
 ## Înainte de a începe
 
 - Se lucrează pe branch-ul **`rust-rewrite`** (etapa 1 e acolo). Fără `feat` în nume și mesaje; commit-uri `<crate sau zonă>: <propoziție>`, fără trailer-e de atribuire.
 - Pe macOS (mașina proprietarului) codul Linux și Windows nu rulează. Linux: `podman machine start`, apoi testele într-un container `rust:1.95` cu repo-ul montat (comanda exactă în Task 4). Windows: `cargo check --target x86_64-pc-windows-gnu` și `--target i686-pc-windows-gnu` local (rustup + mingw sunt instalate: `RUSTC=$HOME/.cargo/bin/rustc ~/.cargo/bin/rustup run stable cargo check …`); rularea reală se face în jobul Windows din CI (Task 15).
-- Nu există un Windows fizic la îndemână: verificarea manuală pe Windows (serviciu, worker în sesiune) e o listă de pași în `specs/agent-v3.md`, nu un pas al planului.
+- Nu există un Windows fizic la îndemână: verificarea manuală pe Windows (serviciu, worker în sesiune) e o listă de pași în `specs/agent.md`, nu un pas al planului.
 
 ## Global Constraints
 
@@ -27,7 +27,7 @@
 - **Offline** = fără conexiune autentificată de cel puțin **60 s** (doar se raportează în etapa 2; modul local e etapa 3).
 - Reconciliere completă: la pornire, la fiecare stare nouă aplicată și la fiecare **10 s**. Rezervă: dacă sursa de evenimente nu pornește sau cade, scanare completă la **1 s**, cu reîncercarea sursei la **60 s**, și o linie `warn!` la fiecare trecere între moduri.
 - Fără stare salvată: se aplică profilul `Lecție` (`blacklist`, listă goală) cu id 0 — nu omoară nimic, nu e `free`.
-- O stare primită se aplică doar dacă `version` e **strict mai mare** decât cea curentă (`specs/server-v3.md`, pasul 5).
+- O stare primită se aplică doar dacă `version` e **strict mai mare** decât cea curentă (`specs/server.md`, pasul 5).
 - Comenzile se deduplică după `id` (serverul retrimite comenzile `delivered` la reconectare); agentul ține ultimele **1000** de id-uri văzute, salvate pe disc.
 - În etapa 2 agentul anunță `capabilities = []` (funcțiile vin în etapa 4). O comandă primită totuși (sau expirată) primește `CommandResult{status: RESULT_UNSUPPORTED}` o singură dată per id.
 - Fișiere și drepturi:
@@ -76,7 +76,7 @@ crates/guardian-agent/
   tests/*.rs
 crates/guardian-worker/src/{lib,main}.rs  # schelet: run(endpoint) — conectare IPC, hello, ping/pong
 packaging/agent-linux-v3/            # guardian-agent.service, install.sh, uninstall.sh
-specs/agent-v3.md
+specs/agent.md
 ```
 
 ---
@@ -645,14 +645,14 @@ git commit -m "build: test the agent on Linux as root and on Windows with ETW, a
 ### Task 16: Documentația
 
 **Files:**
-- Create: `specs/agent-v3.md`
-- Modify: `AGENTS.md` (secțiunea Guardian 3.0: crate-urile noi, comenzile de test în container, etapa 2 gata), `specs/2026-11-17-rust-rewrite-design.md` (§14: notă cu data că etapa 2 e făcută, cu trimitere la `agent-v3.md`), `~/Projects/PROJECTS.md` (secțiunea guardian, data)
+- Create: `specs/agent.md`
+- Modify: `AGENTS.md` (secțiunea Guardian 3.0: crate-urile noi, comenzile de test în container, etapa 2 gata), `specs/2026-11-17-rust-rewrite-design.md` (§14: notă cu data că etapa 2 e făcută, cu trimitere la `agent.md`), `~/Projects/PROJECTS.md` (secțiunea guardian, data)
 
-- [ ] **Step 1: Scrie** `specs/agent-v3.md`: crate-uri și module; fișierele și drepturile (Global Constraints); pornirea (stare salvată → engine → conexiune); regulile de stare (`version`), deduplicarea comenzilor, `capabilities` goale; detectarea hibridă (moduri, intervale, ce se întâmplă la cădere); rădăcinile de încredere pe fiecare OS și de ce; worker-ul (IPC, verificarea PID-ului, sesiunea activă, repornire); binarul (`enroll`, `run`, `status`, `service`); instalarea pe Linux (`install.sh`) și pe Windows (`service install` din `%ProgramFiles%\Guardian`); **lista de verificare manuală pe Windows** (instalare serviciu 32 și 64 de biți, ETW activ în `agent.log`, worker pornit în sesiunea userului după logare și mutat la schimbarea userului, un program din blacklist omorât, unul redenumit `svchost.exe` în Downloads omorât în Examen, reboot fără rețea → starea salvată aplicată).
+- [ ] **Step 1: Scrie** `specs/agent.md`: crate-uri și module; fișierele și drepturile (Global Constraints); pornirea (stare salvată → engine → conexiune); regulile de stare (`version`), deduplicarea comenzilor, `capabilities` goale; detectarea hibridă (moduri, intervale, ce se întâmplă la cădere); rădăcinile de încredere pe fiecare OS și de ce; worker-ul (IPC, verificarea PID-ului, sesiunea activă, repornire); binarul (`enroll`, `run`, `status`, `service`); instalarea pe Linux (`install.sh`) și pe Windows (`service install` din `%ProgramFiles%\Guardian`); **lista de verificare manuală pe Windows** (instalare serviciu 32 și 64 de biți, ETW activ în `agent.log`, worker pornit în sesiunea userului după logare și mutat la schimbarea userului, un program din blacklist omorât, unul redenumit `svchost.exe` în Downloads omorât în Examen, reboot fără rețea → starea salvată aplicată).
 - [ ] **Step 2: Rulează** verificarea finală: `cargo fmt --all --check && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace --all-features && cargo deny check`, plus testele Linux în container și `cargo check` pe ambele ținte Windows — Expected: totul verde.
 - [ ] **Step 3: Commit**
 
 ```bash
-git add specs/agent-v3.md AGENTS.md specs/2026-11-17-rust-rewrite-design.md
+git add specs/agent.md AGENTS.md specs/2026-11-17-rust-rewrite-design.md
 git commit -m "agent: document the 3.0 agent and its manual Windows checks"
 ```

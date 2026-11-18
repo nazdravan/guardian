@@ -20,7 +20,7 @@ Serverul și protocolul nu se schimbă: `Watch` dă deja tot ce arată consola.
 **Spec:**
 - [`specs/2026-11-17-rust-rewrite-design.md`](../2026-11-17-rust-rewrite-design.md) §2, §3 punctul 6, §8.3, §9.2, §9.5, §9.6, §14 punctul 3 (partea „guardian-console").
 - Predecesorul, ale cărui decizii de UX se păstrează unde nu contrazic 3.0: [`specs/2026-11-13-windows-server-gui-design.md`](../2026-11-13-windows-server-gui-design.md).
-- Serverul: [`specs/server-v3.md`](../server-v3.md) (roluri, `Watch`). Agentul: [`specs/agent-v3.md`](../agent-v3.md) (comanda `enroll`).
+- Serverul: [`specs/server.md`](../server.md) (roluri, `Watch`). Agentul: [`specs/agent.md`](../agent.md) (comanda `enroll`).
 
 ## Etapa 3 e împărțită în trei planuri
 
@@ -518,13 +518,13 @@ Serverul și protocolul nu se schimbă: `Watch` dă deja tot ce arată consola.
 ### Task 13: Documentația
 
 **Files:**
-- Create: `specs/console-v3.md`
+- Create: `specs/console.md`
 - Modify:
   - `AGENTS.md` (crate-ul nou în tabel, MSRV 1.95, comenzile de test cu `--features testing`, etapa 3a gata);
-  - `specs/2026-11-17-rust-rewrite-design.md` (§14 punctul 3: notă datată că 3a e făcută, cu trimitere la `console-v3.md` și la împărțirea în 3a/3b/3c);
+  - `specs/2026-11-17-rust-rewrite-design.md` (§14 punctul 3: notă datată că 3a e făcută, cu trimitere la `console.md` și la împărțirea în 3a/3b/3c);
   - `~/Projects/PROJECTS.md` (secțiunea guardian, data).
 
-- [ ] **Step 1:** Scrie `specs/console-v3.md`:
+- [ ] **Step 1:** Scrie `specs/console.md`:
   - straturile și modulele;
   - fișierele și drepturile;
   - modurile remote/embedded și ce se întâmplă la pornire și la închidere;

@@ -905,7 +905,7 @@ git commit -m "cli: add guardian-cli for administration and classroom commands"
 ### Task 19: Testul cap-coadă și documentația
 
 **Files:**
-- Create: `crates/guardian-server/tests/e2e.rs`, `specs/server-v3.md`
+- Create: `crates/guardian-server/tests/e2e.rs`, `specs/server.md`
 - Modify: `AGENTS.md` (secțiune nouă „Guardian 3.0 (Rust, în lucru)"), `specs/2026-11-17-rust-rewrite-design.md` (doar §9.4: `peers` omis, vezi mai jos)
 
 **Interfaces:**
@@ -921,13 +921,13 @@ git commit -m "cli: add guardian-cli for administration and classroom commands"
   7. un agent se deconectează → `Watch` primește `Computer{online:false}` în ≤ 1 s (închidere curată).
 - [ ] **Step 2: Rulează** `cargo test -p guardian-server --features testing --test e2e` — Expected: PASS (dacă pică, repară codul din taskul vinovat, nu testul).
 - [ ] **Step 3: Scrie documentația**:
-  - `specs/server-v3.md`: componente și module, schema, protocolul WebSocket (pașii din Task 11), maparea RPC → rol, porturi și TLS (amprentă), argumentele binarului, comportamentele de siguranță (fail-secure, revocare, expirare comenzi, retenție).
+  - `specs/server.md`: componente și module, schema, protocolul WebSocket (pașii din Task 11), maparea RPC → rol, porturi și TLS (amprentă), argumentele binarului, comportamentele de siguranță (fail-secure, revocare, expirare comenzi, retenție).
   - `AGENTS.md`: comenzi `cargo build --workspace`, `cargo test --workspace --all-features`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo deny check`; harta crate-urilor; regula că `.proto` e contractul și `guardian-core` e singura sursă a logicii de politică; mențiunea că codul Go rămâne până la 3.0.
   - Spec, §9.4: lista `peers` din `Welcome` a fost omisă (niciun consumator în etapele 1–3); notează asta cu data.
 - [ ] **Step 4: Rulează** verificarea finală: `cargo fmt --all --check && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace --all-features && cargo deny check` — Expected: totul verde.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/guardian-server/tests/e2e.rs specs/server-v3.md AGENTS.md specs/2026-11-17-rust-rewrite-design.md
+git add crates/guardian-server/tests/e2e.rs specs/server.md AGENTS.md specs/2026-11-17-rust-rewrite-design.md
 git commit -m "server: cover the full classroom flow end to end and document the 3.0 server"
 ```

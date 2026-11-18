@@ -1,390 +1,69 @@
-# API Reference
-
-Base URL: `http://<host>:8080`
-
-All authenticated endpoints require: `Authorization: Bearer <token>`
-
----
-
-## Unauthenticated
-
-### `GET /health`
-
-Health check for load balancers and monitoring.
-
-**Response** `200`
-```json
-{
-  "status": "ok"
-}
-```
-
----
-
-## Client Endpoints (TOKEN auth)
-
-### `GET /client/sync`
-
-Returns the full state for the agent: applications filtered by current server mode, server mode, and client entries.
-
-If the server is disabled or the computer is unblocked (`blocked: false`), `applications` and `client` are empty arrays.
-
-**Query params:**
-- `identity` (optional) — computer ID integer
-
-**Response** `200`
-```json
-{
-  "applications": [
-    {
-      "name": "firefox",
-      "mode": "blacklist"
-    },
-    {
-      "name": "chrome",
-      "mode": "blacklist"
-    }
-  ],
-  "mode": "blacklist",
-  "client": [
-    {
-      "name": "power",
-      "status": true
-    }
-  ]
-}
-```
-
-**Response** `200` (server disabled or computer unblocked)
-```json
-{
-  "applications": [],
-  "mode": "blacklist",
-  "client": []
-}
-```
-
----
-
-## Management Endpoints (ADMIN_TOKEN auth)
-
-### `GET /manage/applications`
-
-Returns all applications regardless of server status.
-
-**Response** `200`
-```json
-{
-  "applications": [
-    {
-      "id": 1,
-      "name": "firefox",
-      "enabled": true,
-      "mode": "blacklist"
-    },
-    {
-      "id": 2,
-      "name": "chrome",
-      "enabled": true,
-      "mode": "whitelist"
-    }
-  ]
-}
-```
-
----
-
-### `POST /manage/applications`
-
-Add a new application.
-
-**Request**
-```json
-{
-  "name": "firefox",
-  "mode": "blacklist"
-}
-```
-
-`mode` is optional, defaults to `"blacklist"`. Accepted values: `"blacklist"`, `"whitelist"`. The same app name can exist in both modes independently (`UNIQUE(name, mode)`).
-
-**Response** `201`
-```json
-{
-  "message": "Application 'firefox' added"
-}
-```
-
-**Response** `400`
-```json
-{
-  "error": "Application name cannot be empty"
-}
-```
-
----
-
-### `PUT /manage/applications`
-
-Update an application's enabled state and/or mode.
-
-**Request**
-```json
-{
-  "name": "firefox",
-  "enabled": false,
-  "mode": "whitelist"
-}
-```
-
-`enabled` accepts `true`, `false`, `0`, or `1`. `mode` is optional — used to identify the specific entry. If omitted, matches any entry with that name.
-
-**Response** `200`
-```json
-{
-  "message": "Application 'firefox' updated"
-}
-```
-
-**Response** `404`
-```json
-{
-  "error": "Application 'unknown' not found"
-}
-```
-
----
-
-### `DELETE /manage/applications`
-
-Remove an application. If `mode` is provided, removes only that specific name+mode entry. If `mode` is omitted, removes all entries with that name (across all modes).
-
-**Request**
-```json
-{
-  "name": "firefox",
-  "mode": "blacklist"
-}
-```
-
-**Response** `200`
-```json
-{
-  "message": "Application 'firefox' removed"
-}
-```
-
-**Response** `404`
-```json
-{
-  "error": "Application 'unknown' not found"
-}
-```
-
----
-
-### `DELETE /manage/applications/reset`
-
-Remove all applications.
-
-**Response** `200`
-```json
-{
-  "message": "Reset complete: removed 5 applications"
-}
-```
-
----
-
-### `GET /status`
-
-Get server enabled state and mode.
-
-**Response** `200`
-```json
-{
-  "enabled": true,
-  "mode": "blacklist"
-}
-```
-
----
-
-### `PUT /status`
-
-Update server enabled state and/or mode.
-
-**Request**
-```json
-{
-  "enabled": true,
-  "mode": "whitelist"
-}
-```
-
-`mode` is optional — only updated if provided. Accepted values: `"blacklist"`, `"whitelist"`.
-
-**Response** `200`
-```json
-{
-  "message": "Server enabled (mode: whitelist)"
-}
-```
-
-**Response** `400`
-```json
-{
-  "error": "Mode must be 'blacklist' or 'whitelist'"
-}
-```
-
----
-
-### `GET /info`
-
-Get server information.
-
-**Response** `200`
-```json
-{
-  "server_ip": "192.168.1.10",
-  "server_port": "8080",
-  "version": "1.0.0",
-  "status": "enabled",
-  "mode": "blacklist"
-}
-```
-
----
-
-### `GET /client`
-
-Get all client entries.
-
-**Response** `200`
-```json
-{
-  "entries": [
-    {
-      "name": "power",
-      "status": true
-    }
-  ]
-}
-```
-
----
-
-### `PUT /client`
-
-Create or update a client entry.
-
-**Request**
-```json
-{
-  "name": "power",
-  "status": false
-}
-```
-
-**Response** `200`
-```json
-{
-  "message": "Client 'power' disabled"
-}
-```
-
----
-
-### `GET /manage/computers`
-
-Get all registered computers.
-
-**Response** `200`
-```json
-{
-  "computers": [
-    {
-      "identity": 1,
-      "blocked": true,
-      "datetime": "2026-03-27T23:03:10Z"
-    },
-    {
-      "identity": 2,
-      "blocked": false,
-      "datetime": "2026-03-27T23:05:22Z"
-    }
-  ],
-  "current_time": "2026-03-28T01:10:00+02:00"
-}
-```
-
-`datetime` is the computer's last sync, RFC 3339 in UTC; `current_time` is the server's
-local time with its offset. Compare them as instants: a computer is online if it synced
-less than 60 s before `current_time`.
-
----
-
-### `PUT /manage/computers`
-
-Update a computer's blocked status. An unknown identity is created; an existing one keeps
-its last-sync `datetime` (blocking an offline computer does not make it look online).
-
-**Request**
-```json
-{
-  "identity": 1,
-  "blocked": true
-}
-```
-
-**Response** `200`
-```json
-{
-  "message": "Computer 1 blocked"
-}
-```
-
----
-
-### `DELETE /manage/computers/reset`
-
-Unblock all computers.
-
-**Response** `200`
-```json
-{
-  "message": "All computers unblocked"
-}
-```
-
----
-
-### `PUT /manage/computers/block_all`
-
-Block all computers.
-
-**Response** `200`
-```json
-{
-  "message": "All computers blocked"
-}
-```
-
----
-
-## Error Responses
-
-All endpoints return errors in this format:
-
-```json
-{
-  "error": "Description of the error"
-}
-```
-
-Common HTTP status codes:
-- `400` — Invalid request (bad JSON, missing fields, invalid mode)
-- `401` — Unauthorized (missing or wrong token)
-- `404` — Resource not found
-- `500` — Internal server error
+# Guardian 3.0 API reference
+
+The server speaks **gRPC** (tonic, HTTP/2, TLS) to consoles, the CLI and scripts, and a **WebSocket** protocol
+(`/agent/ws`, protobuf frames) to agents, both on one port (default **8443**). The contract is the `.proto` files
+in [`proto/guardian/v1/`](../proto/guardian/v1/); field numbers never change. gRPC reflection is on, so
+`grpcurl -insecure` (or with the pinned certificate) lists every service. Behaviour, validation and limits are in
+[`server.md`](server.md); the agent side is in [`agent.md`](agent.md).
+
+Authentication: `authorization: Bearer <session token>` metadata, from `Auth.Login` or `Auth.Init`. Sessions last
+7 days. Errors are gRPC status codes: `UNAUTHENTICATED` (no or expired session), `PERMISSION_DENIED` (role or
+room), `INVALID_ARGUMENT` (validation, with the field in the message), `NOT_FOUND`, `ALREADY_EXISTS`,
+`FAILED_PRECONDITION` (e.g. deleting a profile in use, demoting the last admin), `RESOURCE_EXHAUSTED` (rate limit).
+
+## `Auth` (`api.proto`)
+
+| RPC | Session | What |
+|---|---|---|
+| `Init(InitRequest{bootstrap_code, login, password})` → `LoginResponse` | no | the first administrator, once, with the code from the server log |
+| `Login(LoginRequest{login, password})` → `LoginResponse{token, expires_at_unix, user}` | no | rate limited per IP after 10 failures a minute |
+| `Logout(Empty)` | yes | ends this session |
+| `ChangePassword(ChangePasswordRequest{old_password, new_password})` | yes | ends the user's other sessions |
+| `WhoAmI(Empty)` → `User{id, login, role, active, room_ids}` | yes | |
+| `EnrollConsole(EnrollConsoleRequest{code, public_key, name})` → `{console_id}` | no | a console code; the key is ed25519, unique |
+
+## `Admin` (administrators only)
+
+| RPC | What |
+|---|---|
+| `ListUsers`, `CreateUser{login, password, role}`, `UpdateUser{id, role?, active?, new_password?}`, `SetUserRooms{user_id, room_ids}` | accounts; teachers are given rooms |
+| `ListRooms`, `CreateRoom{name}`, `RenameRoom{id, name}`, `DeleteRoom{id}` | rooms (a deleted room's computers keep running, without a room) |
+| `ListProfiles`, `CreateProfile(Profile)`, `UpdateProfile(Profile)`, `DeleteProfile{id}` | profiles: name, mode (`MODE_FREE`, `MODE_BLACKLIST`, `MODE_WHITELIST`), app names |
+| `ListComputers`, `UpdateComputer{id, name?, room_id?, exception_profile_id?}`, `RevokeComputer{id}` | `0` removes a room or an exception; a revoked computer's key is refused |
+| `CreateEnrollCode{kind, room_id, max_uses, ttl_seconds}` → `EnrollCode` | `ENROLL_AGENT` (one computer, or a room code) or `ENROLL_CONSOLE` |
+| `ListConsoles`, `RevokeConsole{id}` | consoles enrolled for local fallback mode |
+| `GetSettings`, `UpdateSettings(Settings{default_profile_id, retention_days})` | school default profile, audit/command retention |
+
+## `Control`
+
+| RPC | Who | What |
+|---|---|---|
+| `SetRoomProfile{room_id, profile_id}` → `Room` | admin, or a teacher of the room | the room's active profile; pushed to its agents at once |
+| `SendCommand{room_id \| computers, command, ttl_seconds}` → `{command_id}` | admin, or a teacher of every target | one-shot commands (`message`, `program_start`, `site_open`, `shutdown`, `restart`); agents report no capabilities before stage 4, so targets answer `RESULT_UNSUPPORTED` |
+| `GetCommand{command_id}` → `CommandStatus` | admin, or the sender | per-computer results |
+
+## `Watch`
+
+`Watch(Empty)` → stream of `WatchEvent`: first a `Snapshot{rooms, computers, profiles}`, then `computer`
+(online/offline/changed), `room`, `command_result`, `computer_removed`, `room_removed`. Teachers see only their
+rooms; admins also see computers without a room. `Computer.public_key` is the agent's ed25519 key (for local
+fallback mode). Profile edits are not streamed: reload them with `Admin.ListProfiles`.
+
+## Agent WebSocket (`agent.proto`)
+
+One protobuf frame per binary message (`AgentFrame` from the agent, `ServerFrame` from the server), at most 1 MiB:
+
+1. `Enroll{code, public_key, info}` → `Enrolled{computer_id}` (first time only).
+2. `Hello{computer_id, protocol_version: 1, capabilities, info}` → `Challenge{nonce}` →
+   `ChallengeResponse{signature}` (ed25519 over `"guardian/v1/agent-auth" ‖ nonce ‖ computer_id`).
+3. `Welcome{state, pending, consoles, users}`, then pushes: `State` (higher `version`), `TrustUpdate`, `Command`;
+   the agent sends `CommandResult` and, after local fallback mode, `LocalAudit` (answered by `LocalAuditAck`).
+4. Errors: `ServerError{code}` with `invalid_code`, `unauthorized`, `protocol`, `rate_limited`, `revoked`.
+
+The local channel between consoles and agents (`local.proto`: `LocalRequest`, `LocalReply`, discovery) is in
+[`local-fallback.md`](local-fallback.md).
+
+## CLI
+
+`guardian-cli` wraps the gRPC API for scripts (`guardian-cli --help`): `init`, `login`, `logout`, `whoami`,
+`passwd`, `user`, `room`, `profile`, `computer`, `code`, `console`, `send`, `command`, `watch`, `settings`.
