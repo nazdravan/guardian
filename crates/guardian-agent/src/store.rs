@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use guardian_core::keys::KeyPair;
 use guardian_core::policy::AppName;
-use guardian_proto::v1::{AgentState, Mode, Profile, StoredState};
+use guardian_proto::v1::{AgentState, LocalStore, Mode, Profile, StoredState};
 use prost::Message;
 
 /// How many command ids are remembered.
@@ -122,6 +122,30 @@ pub fn load_state(path: &Path) -> Option<StoredState> {
             None
         }
     }
+}
+
+/// The local fallback file; `None` if missing or unreadable.
+pub fn load_local(path: &Path) -> Option<LocalStore> {
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) => {
+            tracing::warn!("cannot read {}: {e}", path.display());
+            return None;
+        }
+    };
+    match LocalStore::decode(bytes.as_slice()) {
+        Ok(l) => Some(l),
+        Err(e) => {
+            tracing::warn!("{} is corrupt ({e}); ignoring it", path.display());
+            None
+        }
+    }
+}
+
+/// Saves the local fallback file atomically (private).
+pub fn save_local(path: &Path, l: &LocalStore) -> Result<(), StoreError> {
+    atomic_write(path, &l.encode_to_vec(), true).map_err(|e| StoreError::io(path, e))
 }
 
 /// Saves the state atomically.

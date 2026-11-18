@@ -143,6 +143,7 @@ pub async fn run_until(
         engine: EngineConfig::default(),
         backoff_min: Duration::from_secs(1),
         worker: worker_options(),
+        offline_after: guardian_core::local::OFFLINE_AFTER,
     })
     .await?;
     ready();

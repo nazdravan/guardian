@@ -29,6 +29,8 @@ guardian-worker.workspace = true
 guardian-platform = { workspace = true, features = ["testing"] }
 guardian-server = { workspace = true, features = ["testing"] }
 tempfile.workspace = true
+sqlx.workspace = true
+tonic.workspace = true
 guardian-proto.workspace = true
 tokio = { workspace = true, features = ["process"] }
 

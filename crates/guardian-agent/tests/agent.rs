@@ -33,6 +33,7 @@ fn opts(paths: &AgentPaths, f: &Arc<FakePlatform>) -> AgentOptions {
         engine: engine_cfg(),
         backoff_min: Duration::from_millis(100),
         worker: None,
+        offline_after: guardian_core::local::OFFLINE_AFTER,
     }
 }
 

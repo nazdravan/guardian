@@ -6,13 +6,17 @@ use std::time::Duration;
 
 use guardian_core::keys::KeyPair;
 use guardian_platform::Platform;
-use guardian_proto::v1::{AgentState, CommandEnvelope, CommandResult, ResultStatus, StoredState};
+use guardian_proto::v1::{
+    AgentState, CommandEnvelope, CommandResult, LocalReply, LocalRequest, LocalStore, ResultStatus,
+    StoredState,
+};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use crate::config::{AgentConfig, AgentPaths};
 use crate::conn::{self, ConnConfig, ConnEvent, Connection};
 use crate::engine::{Engine, EngineConfig, EngineMode, Policy};
+use crate::local;
 use crate::store::{self, SeenIds, StoreError};
 use crate::worker::{WorkerManager, WorkerOptions};
 
@@ -51,6 +55,9 @@ pub struct AgentOptions {
     pub backoff_min: Duration,
     /// The worker in the user session (`None` = no worker).
     pub worker: Option<WorkerOptions>,
+    /// Without the server this long, local requests are accepted
+    /// ([`guardian_core::local::OFFLINE_AFTER`] in production).
+    pub offline_after: Duration,
 }
 
 impl std::fmt::Debug for AgentOptions {
@@ -82,6 +89,8 @@ pub struct AgentStatus {
     pub revoked: bool,
     /// A worker is connected from the user session.
     pub worker_connected: bool,
+    /// The profile a console set locally while the server was away.
+    pub local_override: Option<i64>,
 }
 
 /// Registers this computer with `code` and writes the config (key created if needed).
@@ -109,7 +118,7 @@ pub async fn enroll(
     }
     .save(&paths.config)?;
     // State and command ids of an earlier enrollment must not carry over.
-    for old in [paths.state(), paths.seen()] {
+    for old in [paths.state(), paths.seen(), paths.local()] {
         match std::fs::remove_file(&old) {
             Ok(()) => tracing::info!("removed {} from an earlier enrollment", old.display()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -122,6 +131,7 @@ pub async fn enroll(
 
 struct Live {
     stored: StoredState,
+    local: LocalStore,
     online: bool,
     revoked: bool,
 }
@@ -134,6 +144,9 @@ pub struct AgentHandle {
     worker: Option<WorkerManager>,
     stop: watch::Sender<bool>,
     task: JoinHandle<()>,
+    paths: AgentPaths,
+    computer_id: u64,
+    offline_after: Duration,
 }
 
 impl std::fmt::Debug for AgentHandle {
@@ -151,11 +164,10 @@ fn state_of(s: &StoredState) -> AgentState {
 impl AgentHandle {
     /// A snapshot of the agent's status.
     pub fn status(&self) -> AgentStatus {
-        let (stored, online, revoked) = match self.live.lock() {
-            Ok(l) => (l.stored.clone(), l.online, l.revoked),
-            Err(_) => (store::default_state(), false, false),
-        };
-        let policy = Policy::from_state(&state_of(&stored));
+        let (stored, local, online, revoked) = with(&self.live, |l| {
+            (l.stored.clone(), l.local.clone(), l.online, l.revoked)
+        });
+        let policy = Policy::from_state(&local::effective_state(&stored, &local));
         let stats = self.engine.stats();
         AgentStatus {
             online,
@@ -171,7 +183,39 @@ impl AgentHandle {
             kills: stats.kills,
             revoked,
             worker_connected: self.worker.as_ref().is_some_and(WorkerManager::connected),
+            local_override: local::active_override(&stored, &local),
         }
+    }
+
+    /// Answers a console's request in local fallback mode (the listener's only
+    /// entry point; the console was authenticated by the channel).
+    pub fn local_request(&self, console_id: i64, req: LocalRequest) -> LocalReply {
+        let offline_for = self.conn.offline_for();
+        let (reply, changed) = with(&self.live, |l| {
+            let ctx = local::Ctx {
+                stored: &l.stored,
+                online: l.online,
+                offline_for,
+                offline_after: self.offline_after,
+                revoked: l.revoked,
+                computer_id: self.computer_id,
+                capabilities: CAPABILITIES,
+            };
+            let (reply, changed) = local::handle(&ctx, &mut l.local, console_id, &req, unix_now());
+            let changed =
+                changed.then(|| (l.local.clone(), local::effective_state(&l.stored, &l.local)));
+            (reply, changed)
+        });
+        if let Some((saved, effective)) = changed {
+            save_local(&self.paths, &saved);
+            let p = Policy::from_state(&effective);
+            tracing::info!(
+                "local fallback: console {console_id} set profile {:?}",
+                p.profile.name
+            );
+            self.engine.set_policy(p);
+        }
+        reply
     }
 
     /// The engine (the worker manager needs it).
@@ -213,16 +257,23 @@ pub async fn run(opts: AgentOptions) -> Result<AgentHandle, AgentError> {
             ours
         })
         .unwrap_or_else(store::default_state);
-    let engine = Engine::spawn(
-        opts.platform.clone(),
-        Policy::from_state(&state_of(&stored)),
-        opts.paths.whitelist(),
-        opts.engine,
-    );
+    let local_store = store::load_local(&opts.paths.local())
+        .filter(|l| l.computer_id == computer_id)
+        .unwrap_or_else(|| LocalStore {
+            computer_id,
+            ..Default::default()
+        });
+    let first = Policy::from_state(&local::effective_state(&stored, &local_store));
     tracing::info!(
         "enforcing {:?} (state version {}) before connecting",
-        Policy::from_state(&state_of(&stored)).profile.name,
+        first.profile.name,
         state_of(&stored).version
+    );
+    let engine = Engine::spawn(
+        opts.platform.clone(),
+        first,
+        opts.paths.whitelist(),
+        opts.engine,
     );
     let (tx, mut rx) = mpsc::channel(64);
     let conn = Arc::new(Connection::spawn(
@@ -240,6 +291,7 @@ pub async fn run(opts: AgentOptions) -> Result<AgentHandle, AgentError> {
     ));
     let live = Arc::new(Mutex::new(Live {
         stored,
+        local: local_store,
         online: false,
         revoked: false,
     }));
@@ -270,6 +322,9 @@ pub async fn run(opts: AgentOptions) -> Result<AgentHandle, AgentError> {
         worker,
         stop,
         task,
+        paths: opts.paths.clone(),
+        computer_id,
+        offline_after: opts.offline_after,
     })
 }
 
@@ -281,34 +336,47 @@ fn with<R>(live: &Mutex<Live>, f: impl FnOnce(&mut Live) -> R) -> R {
     f(&mut g)
 }
 
+fn save_local(paths: &AgentPaths, l: &LocalStore) {
+    if let Err(e) = store::save_local(&paths.local(), l) {
+        tracing::error!("cannot save the local fallback file: {e}");
+    }
+}
+
 fn save(paths: &AgentPaths, stored: &StoredState) {
     if let Err(e) = store::save_state(&paths.state(), stored) {
         tracing::error!("cannot save state: {e}");
     }
 }
 
-/// Applies `st` if it is newer (or the current one is the default, version 0).
+/// Applies `st` if it is newer (or the current one is the default, version 0),
+/// or always with `force` (the server is back after local fallback mode).
 fn apply_state(
     st: AgentState,
     computer_id: u64,
     live: &Mutex<Live>,
     engine: &Engine,
     paths: &AgentPaths,
+    force: bool,
 ) {
     let updated = with(live, |l| {
         let current = state_of(&l.stored).version;
-        if st.version <= current && current != 0 {
+        if st.version <= current && current != 0 && !force {
             tracing::debug!("ignoring state version {} (have {current})", st.version);
             return None;
         }
-        l.stored.state = Some(st.clone());
+        if st.version >= current || current == 0 {
+            l.stored.state = Some(st.clone());
+        }
         l.stored.computer_id = computer_id;
         l.stored.saved_at_unix = unix_now();
-        Some(l.stored.clone())
+        Some((
+            l.stored.clone(),
+            local::effective_state(&l.stored, &l.local),
+        ))
     });
-    if let Some(stored) = updated {
+    if let Some((stored, effective)) = updated {
         save(paths, &stored);
-        let p = Policy::from_state(&st);
+        let p = Policy::from_state(&effective);
         tracing::info!(
             "applying profile {:?} (state version {})",
             p.profile.name,
@@ -352,21 +420,51 @@ fn handle_event(
 ) {
     match ev {
         ConnEvent::Online { welcome } => {
-            let trust = with(live, |l| {
+            let (trust, journal, local_store, had_override) = with(live, |l| {
                 l.online = true;
                 l.stored.consoles = welcome.consoles.clone();
                 l.stored.users = welcome.users.clone();
-                l.stored.clone()
+                // The server's state wins again (§11.5).
+                let had = l.local.r#override.take().is_some();
+                (
+                    l.stored.clone(),
+                    l.local.journal.clone(),
+                    l.local.clone(),
+                    had,
+                )
             });
             save(paths, &trust);
-            if let Some(st) = welcome.state {
-                apply_state(st, computer_id, live, engine, paths);
+            if had_override {
+                tracing::info!("server is back: undoing the local profile switch");
+                save_local(paths, &local_store);
+            }
+            if !journal.is_empty() {
+                tracing::info!(
+                    "sending {} local fallback actions to the server",
+                    journal.len()
+                );
+                conn.send_local_audit(journal);
+            }
+            match welcome.state {
+                Some(st) => apply_state(st, computer_id, live, engine, paths, had_override),
+                None if had_override => {
+                    let effective = with(live, |l| local::effective_state(&l.stored, &l.local));
+                    engine.set_policy(Policy::from_state(&effective));
+                }
+                None => {}
             }
             for cmd in &welcome.pending {
                 answer(cmd, conn, paths, seen);
             }
         }
-        ConnEvent::State(st) => apply_state(st, computer_id, live, engine, paths),
+        ConnEvent::State(st) => apply_state(st, computer_id, live, engine, paths, false),
+        ConnEvent::LocalAuditAck(up_to) => {
+            let l = with(live, |l| {
+                local::ack(&mut l.local, up_to);
+                l.local.clone()
+            });
+            save_local(paths, &l);
+        }
         ConnEvent::Trust(w) => {
             let stored = with(live, |l| {
                 l.stored.consoles = w.consoles;

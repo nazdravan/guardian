@@ -13,7 +13,7 @@ use guardian_core::keys::{AuthContext, KeyPair};
 use guardian_core::random::random_bytes;
 use guardian_proto::v1::{
     AgentFrame, AgentState, ChallengeResponse, CommandEnvelope, CommandResult, Enroll, Hello,
-    ServerFrame, SystemInfo, Welcome, agent_frame, server_frame,
+    LocalAudit, LocalAuditEntry, ServerFrame, SystemInfo, Welcome, agent_frame, server_frame,
 };
 use prost::Message as _;
 use tokio::sync::{mpsc, watch};
@@ -73,6 +73,8 @@ pub enum ConnEvent {
     },
     /// The computer was revoked; the loop has stopped for good.
     Revoked,
+    /// The server stored the local journal up to this `seq`.
+    LocalAuditAck(u64),
 }
 
 /// Where and how to connect.
@@ -227,7 +229,7 @@ struct Status {
 /// The running connection loop.
 pub struct Connection {
     status: Arc<Mutex<Status>>,
-    results: mpsc::UnboundedSender<CommandResult>,
+    results: mpsc::UnboundedSender<Outgoing>,
     stop: watch::Sender<bool>,
     task: JoinHandle<()>,
 }
@@ -247,6 +249,13 @@ pub fn backoff(n: u32, min: Duration, max: Duration) -> Duration {
     base.mul_f64(0.8 + 0.4 * r).min(max.mul_f64(1.2))
 }
 
+/// What the agent sends on the current (or next) connection.
+#[derive(Debug)]
+enum Outgoing {
+    Result(CommandResult),
+    LocalAudit(Vec<LocalAuditEntry>),
+}
+
 enum Ended {
     Lost(String),
     Revoked,
@@ -256,7 +265,7 @@ enum Ended {
 async fn session(
     mut ws: Ws,
     events: &mpsc::Sender<ConnEvent>,
-    results: &mut mpsc::UnboundedReceiver<CommandResult>,
+    results: &mut mpsc::UnboundedReceiver<Outgoing>,
     stop: &mut watch::Receiver<bool>,
 ) -> Ended {
     let mut ping = tokio::time::interval(PING_EVERY);
@@ -270,7 +279,13 @@ async fn session(
             }
             r = results.recv() => {
                 let Some(r) = r else { return Ended::Stopped };
-                if let Err(e) = send(&mut ws, agent_frame::Msg::CommandResult(r)).await {
+                let msg = match r {
+                    Outgoing::Result(r) => agent_frame::Msg::CommandResult(r),
+                    Outgoing::LocalAudit(entries) => {
+                        agent_frame::Msg::LocalAudit(LocalAudit { entries })
+                    }
+                };
+                if let Err(e) = send(&mut ws, msg).await {
                     return Ended::Lost(e.to_string());
                 }
             }
@@ -285,6 +300,7 @@ async fn session(
                             Some(server_frame::Msg::State(st)) => ConnEvent::State(st),
                             Some(server_frame::Msg::TrustUpdate(w)) => ConnEvent::Trust(w),
                             Some(server_frame::Msg::Command(c)) => ConnEvent::Command(c),
+                            Some(server_frame::Msg::LocalAuditAck(a)) => ConnEvent::LocalAuditAck(a.up_to_seq),
                             Some(server_frame::Msg::Error(e)) if e.code == "revoked" => return Ended::Revoked,
                             Some(server_frame::Msg::Error(e)) => return Ended::Lost(format!("{}: {}", e.code, e.message)),
                             Some(_) | None => continue,
@@ -392,7 +408,12 @@ impl Connection {
 
     /// Queues a command result (sent on the current or next connection).
     pub fn send_result(&self, r: CommandResult) {
-        let _ = self.results.send(r);
+        let _ = self.results.send(Outgoing::Result(r));
+    }
+
+    /// Queues the local fallback journal (sent on the current or next connection).
+    pub fn send_local_audit(&self, entries: Vec<LocalAuditEntry>) {
+        let _ = self.results.send(Outgoing::LocalAudit(entries));
     }
 
     /// When the current authenticated connection began.

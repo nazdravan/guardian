@@ -84,6 +84,10 @@ impl AgentPaths {
     pub fn seen(&self) -> PathBuf {
         self.data.join("seen.txt")
     }
+    /// The local fallback switch and journal.
+    pub fn local(&self) -> PathBuf {
+        self.data.join("local.pb")
+    }
     /// The local whitelist.
     pub fn whitelist(&self) -> PathBuf {
         self.data.join("whitelist.txt")

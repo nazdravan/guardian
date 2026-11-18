@@ -7,6 +7,7 @@ mod agent;
 pub mod config;
 pub mod conn;
 pub mod engine;
+pub mod local;
 pub mod store;
 pub mod worker;
 
