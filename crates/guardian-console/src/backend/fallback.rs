@@ -170,7 +170,7 @@ pub(crate) fn on_connection(core: &Core, st: &ConnState) {
 }
 
 /// A sign-in failed because the server cannot be reached.
-pub(crate) fn server_unreachable(core: &Core) {
+pub(crate) fn server_unreachable(core: &Arc<Core>) {
     on_connection(
         core,
         &ConnState::Reconnecting {
@@ -178,6 +178,9 @@ pub(crate) fn server_unreachable(core: &Core) {
             error: String::new(),
         },
     );
+    // From the sign-in screen nothing retries the server any more; without a
+    // retry loop fallback mode would never notice the server coming back.
+    core.ensure_session();
 }
 
 /// Keeps the cache current with a `Watch` event.
@@ -272,14 +275,10 @@ pub(crate) async fn enable(core: Arc<Core>, code: Option<String>) {
             }
         }
     };
+    // A fresh key every time: the server keeps every enrolled key (revoked
+    // ones too) unique, so an old key could never be enrolled again.
     let (key_path, _) = paths(&core);
-    let key = match key::load_or_create(&key_path) {
-        Ok(k) => k,
-        Err(e) => {
-            core.emit(Event::Error(format!("Cannot create the console key: {e}")));
-            return;
-        }
-    };
+    let key = guardian_core::keys::KeyPair::generate();
     let name = gethostname::gethostname().to_string_lossy().into_owned();
     let id = match AuthClient::new(ch)
         .enroll_console(EnrollConsoleRequest {
@@ -299,6 +298,10 @@ pub(crate) async fn enable(core: Arc<Core>, code: Option<String>) {
             return;
         }
     };
+    if let Err(e) = key::save(&key_path, &key) {
+        core.emit(Event::Error(format!("Cannot save the console key: {e}")));
+        return;
+    }
     let mut cache = FallbackCache::new(&server, id);
     cache.merge_event(&snapshot_of(&core));
     let user = lock(&core.user).clone();
@@ -428,8 +431,17 @@ pub(crate) fn is_active(core: &Core) -> bool {
     lock(&core.fallback).active.is_some()
 }
 
+/// The view of one fallback run; `None` once that run is over (left, ended by
+/// the server, or replaced), so a late result cannot bring fallback mode back.
 fn view(core: &Core, user: &CachedUser, reach: &ReachMap) -> Option<Event> {
     let fb = lock(&core.fallback);
+    let current = fb
+        .active
+        .as_ref()
+        .is_some_and(|a| Arc::ptr_eq(&a.reach, reach));
+    if !current {
+        return None;
+    }
     let cache = fb.cache.as_ref()?;
     let r: BTreeMap<u64, Reach> = lock(reach)
         .iter()

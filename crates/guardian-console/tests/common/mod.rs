@@ -90,6 +90,15 @@ impl Console {
         }
     }
 
+    /// Every event that arrived so far and was not read yet.
+    pub fn drain(&self) -> Vec<Event> {
+        let mut q = self.pending.lock().unwrap();
+        q.extend(self.b.poll());
+        let out: Vec<Event> = q.drain(..).collect();
+        self.seen.lock().unwrap().extend(out.iter().cloned());
+        out
+    }
+
     /// The latest fleet matching `pred`: the last one already seen, or the next.
     pub async fn fleet_where(&self, pred: impl Fn(&Fleet) -> bool) -> Fleet {
         if let Some(f) = self.last_fleet.lock().unwrap().clone().filter(|f| pred(f)) {

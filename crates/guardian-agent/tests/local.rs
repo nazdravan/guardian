@@ -297,3 +297,45 @@ async fn override_is_undone_when_server_returns_with_same_version() {
     assert!(w.f.is_running(other), "the engine still enforces Examen");
     h.shutdown().await;
 }
+
+#[tokio::test]
+async fn late_local_switch_does_not_beat_the_server() {
+    let mut w = world().await;
+    let h = std::sync::Arc::new(started(&w).await);
+    for round in 0..10 {
+        offline(&mut w, &h).await;
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let hammer = {
+            let (h, stop, teacher, room, exam) = (
+                h.clone(),
+                stop.clone(),
+                w.teacher.clone(),
+                w.room,
+                w.exam.id,
+            );
+            tokio::task::spawn_blocking(move || {
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    h.local_request(1, set_profile(&teacher, room, exam));
+                }
+            })
+        };
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        w.start_server().await;
+        assert!(
+            until(Duration::from_secs(8), || h.status().online).await,
+            "round {round}: never online"
+        );
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        hammer.await.unwrap();
+        // The engine enforces Lecție: a program Examen would kill keeps running.
+        let other = w.f.spawn("other.exe", r"C:\x\other.exe");
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        assert!(
+            w.f.is_running(other),
+            "round {round}: the late local switch beat the server"
+        );
+        w.f.remove(other);
+    }
+    std::sync::Arc::try_unwrap(h).unwrap().shutdown().await;
+}

@@ -167,7 +167,10 @@ struct LocalCore {
 impl LocalService for LocalCore {
     fn request(&self, console_id: i64, req: LocalRequest) -> LocalReply {
         let offline_for = self.conn.offline_for();
-        let (reply, changed) = with(&self.live, |l| {
+        // The switch, its file and the policy push happen under one lock, so
+        // a server state applied at the same moment (also under this lock)
+        // can never be overtaken by a late local push.
+        with(&self.live, |l| {
             let ctx = local::Ctx {
                 stored: &l.stored,
                 online: l.online,
@@ -178,20 +181,17 @@ impl LocalService for LocalCore {
                 capabilities: CAPABILITIES,
             };
             let (reply, changed) = local::handle(&ctx, &mut l.local, console_id, &req, unix_now());
-            let changed =
-                changed.then(|| (l.local.clone(), local::effective_state(&l.stored, &l.local)));
-            (reply, changed)
-        });
-        if let Some((saved, effective)) = changed {
-            save_local(&self.paths, &saved);
-            let p = Policy::from_state(&effective);
-            tracing::info!(
-                "local fallback: console {console_id} set profile {:?}",
-                p.profile.name
-            );
-            self.engine.set_policy(p);
-        }
-        reply
+            if changed {
+                save_local(&self.paths, &l.local);
+                let p = Policy::from_state(&local::effective_state(&l.stored, &l.local));
+                tracing::info!(
+                    "local fallback: console {console_id} set profile {:?}",
+                    p.profile.name
+                );
+                self.engine.set_policy(p);
+            }
+            reply
+        })
     }
 
     fn trusted(&self) -> Vec<(i64, PublicKey)> {
@@ -434,20 +434,18 @@ fn apply_state(
         }
         l.stored.computer_id = computer_id;
         l.stored.saved_at_unix = unix_now();
-        Some((
-            l.stored.clone(),
-            local::effective_state(&l.stored, &l.local),
-        ))
-    });
-    if let Some((stored, effective)) = updated {
-        save(paths, &stored);
-        let p = Policy::from_state(&effective);
+        // Pushed under the lock: see `LocalCore::request`.
+        let p = Policy::from_state(&local::effective_state(&l.stored, &l.local));
         tracing::info!(
             "applying profile {:?} (state version {})",
             p.profile.name,
             p.version
         );
         engine.set_policy(p);
+        Some(l.stored.clone())
+    });
+    if let Some(stored) = updated {
+        save(paths, &stored);
     }
 }
 
@@ -485,24 +483,21 @@ fn handle_event(
 ) {
     match ev {
         ConnEvent::Online { welcome } => {
-            let (trust, journal, local_store, had_override) = with(live, |l| {
+            let (trust, journal) = with(live, |l| {
                 l.online = true;
                 l.stored.consoles = welcome.consoles.clone();
                 l.stored.users = welcome.users.clone();
-                // The server's state wins again (§11.5).
-                let had = l.local.r#override.take().is_some();
-                (
-                    l.stored.clone(),
-                    l.local.journal.clone(),
-                    l.local.clone(),
-                    had,
-                )
+                // The server's state wins again (§11.5); the file is written
+                // under the lock so a late local write cannot land after it.
+                if l.local.r#override.take().is_some() {
+                    tracing::info!("server is back: undoing the local profile switch");
+                    save_local(paths, &l.local);
+                    let p = Policy::from_state(&local::effective_state(&l.stored, &l.local));
+                    engine.set_policy(p);
+                }
+                (l.stored.clone(), l.local.journal.clone())
             });
             save(paths, &trust);
-            if had_override {
-                tracing::info!("server is back: undoing the local profile switch");
-                save_local(paths, &local_store);
-            }
             if !journal.is_empty() {
                 tracing::info!(
                     "sending {} local fallback actions to the server",
@@ -510,13 +505,9 @@ fn handle_event(
                 );
                 conn.send_local_audit(journal);
             }
-            match welcome.state {
-                Some(st) => apply_state(st, computer_id, live, engine, paths, had_override),
-                None if had_override => {
-                    let effective = with(live, |l| local::effective_state(&l.stored, &l.local));
-                    engine.set_policy(Policy::from_state(&effective));
-                }
-                None => {}
+            if let Some(st) = welcome.state {
+                // Forced: after a local switch the same version must apply again.
+                apply_state(st, computer_id, live, engine, paths, true);
             }
             for cmd in &welcome.pending {
                 answer(cmd, conn, paths, seen);

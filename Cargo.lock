@@ -2068,6 +2068,7 @@ dependencies = [
  "guardian-worker",
  "prost",
  "serde",
+ "snow",
  "sqlx",
  "tempfile",
  "thiserror 2.0.21",

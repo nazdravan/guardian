@@ -32,3 +32,11 @@ pub fn load_or_create(path: &Path) -> Result<KeyPair, FallbackError> {
         Err(e) => Err(io(e)),
     }
 }
+
+/// Writes `k` to `path` (0600), replacing any older key.
+pub fn save(path: &Path, k: &KeyPair) -> Result<(), FallbackError> {
+    write_private(path, k.seed().as_slice()).map_err(|source| FallbackError::Io {
+        path: path.to_path_buf(),
+        source,
+    })
+}

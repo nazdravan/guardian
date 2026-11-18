@@ -353,3 +353,95 @@ async fn forget_mode_deletes_key_and_cache() {
     .await;
     assert!(!key.exists() && !cache.exists());
 }
+
+#[tokio::test]
+async fn fallback_from_sign_in_screen_ends_when_server_returns() {
+    let mut st = setup().await;
+    let c = teacher_console(&st).await;
+    c.b.send(Action::Logout);
+    c.until(
+        |e| matches!(e, Event::Connection(ConnState::NeedsLogin { .. })),
+        "the sign-in screen",
+    )
+    .await;
+    agents_offline(&mut st).await;
+    // Sitting on the sign-in screen, the teacher tries to sign in.
+    c.b.send(Action::Login {
+        login: "prof".into(),
+        password: Secret::new(TEACHER_PASSWORD),
+    });
+    available(&c).await;
+    c.b.send(Action::FallbackLogin {
+        login: "prof".into(),
+        password: Secret::new(TEACHER_PASSWORD),
+    });
+    active(&c).await;
+    st.w.start_server().await;
+    c.until_within(
+        Duration::from_secs(45),
+        |e| matches!(e, Event::Fallback(FallbackState::Off)),
+        "fallback off",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn late_switch_result_does_not_reenter_fallback() {
+    let mut st = setup().await;
+    let c = teacher_console(&st).await;
+    agents_offline(&mut st).await;
+    // One computer is gone: switching the room waits for its timeouts.
+    st.agents.pop().unwrap().shutdown().await;
+    available(&c).await;
+    c.b.send(Action::EnterFallback);
+    active(&c).await;
+    c.b.send(Action::SetRoomProfile {
+        room_id: st.w.room,
+        profile_id: st.w.exam.id,
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    c.b.send(Action::LeaveFallback);
+    c.until(
+        |e| matches!(e, Event::Fallback(FallbackState::Available)),
+        "left fallback",
+    )
+    .await;
+    let after = c
+        .until(
+            |e| matches!(e, Event::Done(_) | Event::Error(_)),
+            "the switch result",
+        )
+        .await;
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    let mut late = after;
+    late.extend(c.drain());
+    assert!(
+        !late
+            .iter()
+            .any(|e| matches!(e, Event::Fallback(FallbackState::Active { .. }))),
+        "fallback mode came back after leaving it: {late:?}"
+    );
+}
+
+#[tokio::test]
+async fn fallback_can_be_enabled_again_after_revoke() {
+    let st = setup().await;
+    let c = teacher_console(&st).await;
+    let first = match c.seen.lock().unwrap().iter().rev().find_map(|e| match e {
+        Event::FallbackEnabled(Some(id)) => Some(*id),
+        _ => None,
+    }) {
+        Some(id) => id,
+        None => panic!("not enabled"),
+    };
+    AdminClient::new(st.w.server().grpc().await)
+        .revoke_console(req(
+            &st.w.admin,
+            guardian_proto::v1::IdRequest { id: first },
+        ))
+        .await
+        .unwrap();
+    let code = console_code(&st.w).await;
+    let second = enabled(&c, Some(code)).await;
+    assert_ne!(first, second);
+}

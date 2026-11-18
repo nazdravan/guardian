@@ -194,3 +194,109 @@ fn config_without_local_port_still_loads() {
     .unwrap();
     assert_eq!(AgentConfig::load(&p).unwrap().local_port(), 0);
 }
+
+#[tokio::test]
+async fn reconnecting_attacker_does_not_lock_out_the_console() {
+    let mut w = world().await;
+    let h = started_with(&w, opts_with_listener(&w.paths, &w.f)).await;
+    let (tcp, _) = h.local_addrs().unwrap();
+    offline(&mut w, &h).await;
+    // A script that opens a silent connection every millisecond, forever.
+    let attacker = tokio::spawn(async move {
+        let mut held = std::collections::VecDeque::new();
+        loop {
+            if let Ok(s) = TcpStream::connect(tcp).await {
+                held.push_back(s);
+                if held.len() > 200 {
+                    held.pop_front();
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let mut got = 0;
+    for _ in 0..10 {
+        if let Ok(mut c) = connect(
+            tcp,
+            &w.console_key,
+            w.console_id,
+            &agent_key(&w),
+            test_limits(),
+        )
+        .await
+            && c.send(&status(&w)).await.is_ok()
+            && c.recv::<LocalReply>().await.is_ok()
+        {
+            got += 1;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    attacker.abort();
+    assert!(got >= 9, "the console got in {got} times out of 10");
+    h.shutdown().await;
+}
+
+#[tokio::test]
+async fn replayed_handshake_is_closed_quickly() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut w = world().await;
+    let h = started_with(&w, opts_with_listener(&w.paths, &w.f)).await;
+    let (tcp, _) = h.local_addrs().unwrap();
+    offline(&mut w, &h).await;
+    // A first handshake message as a recorded one would be: valid, but the
+    // sender cannot follow it with a transport message.
+    let secret = w.console_key.x25519_secret();
+    let remote = agent_key(&w).x25519().unwrap();
+    let mut hs = snow::Builder::new(guardian_local::channel::NOISE_PATTERN.parse().unwrap())
+        .local_private_key(secret.as_slice())
+        .unwrap()
+        .remote_public_key(&remote)
+        .unwrap()
+        .build_initiator()
+        .unwrap();
+    let mut buf = vec![0u8; 1024];
+    let n = hs
+        .write_message(&w.console_id.to_le_bytes(), &mut buf)
+        .unwrap();
+    let mut s = TcpStream::connect(tcp).await.unwrap();
+    let mut frame = (n as u16).to_be_bytes().to_vec();
+    frame.extend_from_slice(&buf[..n]);
+    s.write_all(&frame).await.unwrap();
+    let t = Instant::now();
+    let mut sink = vec![0u8; 4096];
+    loop {
+        match tokio::time::timeout(Duration::from_secs(5), s.read(&mut sink)).await {
+            Ok(Ok(0)) | Ok(Err(_)) => break,
+            Ok(Ok(_)) => continue,
+            Err(_) => panic!("never closed"),
+        }
+    }
+    let limit = test_limits().handshake + Duration::from_millis(500);
+    assert!(t.elapsed() < limit, "held for {:?}", t.elapsed());
+    h.shutdown().await;
+}
+
+#[tokio::test]
+async fn replayed_discovery_is_answered_once() {
+    let w = world().await;
+    let h = started_with(&w, opts_with_listener(&w.paths, &w.f)).await;
+    let (_, udp) = h.local_addrs().unwrap();
+    let (r, _) = discover::request(&w.console_key, w.console_id);
+    let bytes = r.encode_to_vec();
+    let s = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    for _ in 0..5 {
+        s.send_to(&bytes, udp).await.unwrap();
+    }
+    let mut buf = [0u8; 2048];
+    let mut replies = 0;
+    while let Ok(Ok(_)) =
+        tokio::time::timeout(Duration::from_millis(500), s.recv_from(&mut buf)).await
+    {
+        replies += 1;
+    }
+    assert_eq!(replies, 1);
+    let (fresh, _) = discover::request(&w.console_key, w.console_id);
+    assert!(ask(udp, &fresh.encode_to_vec()).await.is_some());
+    h.shutdown().await;
+}

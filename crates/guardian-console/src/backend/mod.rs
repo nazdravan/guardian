@@ -450,6 +450,26 @@ impl Core {
         *lock(&self.bootstrap) = code;
     }
 
+    /// Starts the connect loop to the remote server again if none is running
+    /// (the sign-in screen has none); leaves the fleet and fallback mode alone.
+    pub(crate) fn ensure_session(self: &Arc<Self>) {
+        let running = lock(&self.session)
+            .as_ref()
+            .is_some_and(|h| !h.is_finished());
+        if running {
+            return;
+        }
+        let (server, pin) = match &lock(&self.settings).mode {
+            Some(Mode::Remote {
+                server,
+                cert_sha256,
+            }) => (server.clone(), cert_sha256.clone()),
+            _ => return,
+        };
+        let c = self.clone();
+        self.replace_session(tokio::spawn(conn::run_session(c, server, pin)));
+    }
+
     pub(crate) fn abort_session(&self) {
         if let Some(h) = lock(&self.session).take() {
             h.abort();
