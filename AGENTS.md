@@ -108,8 +108,9 @@ cd mobile && flutter pub run flutter_launcher_icons
 ## Guardian 3.0 (Rust, in progress)
 
 A clean rewrite on branch `rust-rewrite` (spec: `specs/2026-11-17-rust-rewrite-design.md`; server:
-`specs/server-v3.md`; plans in `specs/plans/`). The Go code above stays until the 3.0 release.
-Stage 1 (server + CLI) is done; the agent, the egui console and `guardian-setup` come next.
+`specs/server-v3.md`; agent: `specs/agent-v3.md`; plans in `specs/plans/`). The Go code above stays until
+the 3.0 release. Stage 1 (server + CLI) and stage 2 (agent + worker, Linux and Windows) are done; the egui
+console, local fallback mode and `guardian-setup` (stage 3) come next.
 
 Cargo workspace at the repo root (`Cargo.toml`, `crates/*`, `proto/`), Rust edition 2024, MSRV 1.88:
 
@@ -120,6 +121,9 @@ Cargo workspace at the repo root (`Cargo.toml`, `crates/*`, `proto/`), Rust edit
 | `crates/guardian-server` | server library + `guardian-server` binary; feature `testing` = `TestServer`, `SimAgent` |
 | `crates/guardian-client` | TLS with certificate pin, gRPC channel, token interceptor, WebSocket connector |
 | `crates/guardian-cli` | `guardian-cli` |
+| `crates/guardian-platform` | OS access behind the `Platform` trait (Linux `/proc` + proc connector + `loginctl`, Windows ToolHelp + ETW + WTS), local IPC; feature `testing` = `FakePlatform` |
+| `crates/guardian-agent` | agent library + `guardian-agent` (`enroll`, `run`, `status`, Windows `service`) |
+| `crates/guardian-worker` | `guardian-worker`, started by the agent in the user session (stage 2: hello + ping/pong) |
 
 ```sh
 cargo build --workspace
@@ -129,10 +133,18 @@ cargo fmt --all --check
 cargo deny check
 ```
 
+Linux-only agent tests run in a container from macOS (repo mounted at `/w`, `CARGO_TARGET_DIR=/w/target/linux`,
+image = `rust` + clippy/rustfmt); the real proc connector test needs
+`--cap-add NET_ADMIN --network host --pid host` and `-- --include-ignored`. The full real run:
+`cargo build --workspace --bins && cargo test -p guardian-agent --test real_linux`. Windows code is checked
+locally with `cargo clippy --target x86_64-pc-windows-gnu` / `i686-pc-windows-gnu`; its tests (incl. ETW) run in
+the CI `windows` job.
+
 Rules: the `.proto` files are the contract (field numbers never change); `guardian-core` is the only place
 policy logic lives; libraries are `#![forbid(unsafe_code)]`; no `unwrap`/`expect`/`panic` outside tests
 (the single exception is `guardian_core::random::random_bytes`); dependencies must pass `cargo deny`
-(no GPL/MPL). Linux packaging: `packaging/server-linux-v3/`. CI: `.github/workflows/rust.yml`.
+(no GPL/MPL); `unsafe` only in `guardian-platform/src/windows/ffi_*.rs`. Linux packaging:
+`packaging/server-linux-v3/`, `packaging/agent-linux-v3/`. CI: `.github/workflows/rust.yml`.
 
 ## Key Dependencies
 

@@ -196,17 +196,17 @@ fn uninstall() -> Result<(), String> {
             ServiceAccess::QUERY_STATUS | ServiceAccess::STOP | ServiceAccess::DELETE,
         )
         .map_err(|e| format!("open service: {e}"))?;
-    if let Ok(st) = svc.query_status() {
-        if st.current_state != ServiceState::Stopped {
-            let _ = svc.stop();
-            for _ in 0..50 {
-                std::thread::sleep(Duration::from_millis(200));
-                if svc
-                    .query_status()
-                    .is_ok_and(|s| s.current_state == ServiceState::Stopped)
-                {
-                    break;
-                }
+    if let Ok(st) = svc.query_status()
+        && st.current_state != ServiceState::Stopped
+    {
+        let _ = svc.stop();
+        for _ in 0..50 {
+            std::thread::sleep(Duration::from_millis(200));
+            if svc
+                .query_status()
+                .is_ok_and(|s| s.current_state == ServiceState::Stopped)
+            {
+                break;
             }
         }
     }

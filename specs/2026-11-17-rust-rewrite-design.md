@@ -306,6 +306,7 @@ Nu intră în etapele de mai jos; se reiau după etapa 4, fiecare cu propriul de
 
 1. **Fundația și serverul** — workspace, `proto/`, `guardian-proto`, `guardian-core` (politica efectivă, decizia de enforcement, chei), `guardian-server` (schemă, prima pornire, conturi, săli, profiluri, înrolare, gRPC `Auth`/`Admin`/`Control`/`Watch`, hub WebSocket, TLS), `guardian-cli`. Testare cap-coadă cu un agent simulat în teste.
 2. **Agentul** — `guardian-platform` (Windows + Linux), `guardian-agent` (înrolare, WebSocket, stare offline, detectare hibridă, enforcement), `guardian-worker` (schelet + IPC), instalare ca serviciu (Windows 32/64, Linux systemd). Prima utilizare reală: server + agent + CLI.
+   *Făcută pe 2026-11-18 (branch `rust-rewrite`), descrisă în [`agent-v3.md`](agent-v3.md); testele de Windows rulează doar în CI, la primul push.*
 3. **Consola și instalarea** — `guardian-console` (conectare la server, server încorporat, săli, profiluri, calculatoare, comenzi), modul de rezervă local (Noise, descoperire, comutare de profil), `guardian-setup` (după `rust:specs/2026-10-09-console-architecture-design.md`: straturi, tabel de operații folosit și de GUI și de CLI, `egui_kittest`, reguli „never panic", `cargo-deny`; adaptat la workspace-ul comun și la agentul Rust), arhiva de release și CI. **→ release 3.0**; codul Go se șterge din repo.
 4. **Funcțiile noi**, câte una, fiecare un release mic (3.1, 3.2…): mesaj → program/site → oprire/restart cu countdown → fișiere (trimitere, apoi strângere).
 
