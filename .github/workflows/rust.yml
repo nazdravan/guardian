@@ -8,7 +8,8 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "deny.toml"
-      - "packaging/agent-linux-v3/**"
+      - "scripts/**"
+      - "packaging/**"
       - ".github/workflows/rust.yml"
   pull_request:
     paths:
@@ -17,7 +18,8 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "deny.toml"
-      - "packaging/agent-linux-v3/**"
+      - "scripts/**"
+      - "packaging/**"
       - ".github/workflows/rust.yml"
 
 env:
@@ -40,7 +42,9 @@ jobs:
       - run: cargo test --workspace --all-features
       - run: cargo test -p guardian-agent --test real_linux
       - run: cargo test -p guardian-console --test real_embedded
-      - run: sh -n packaging/agent-linux-v3/install.sh && sh -n packaging/agent-linux-v3/uninstall.sh
+      - run: sh -n packaging/agent-linux/install.sh && sh -n packaging/agent-linux/uninstall.sh && sh -n packaging/server-linux/install.sh
+      - run: bash scripts/test-package.sh
+      - run: python3 -I scripts/check-workflows.py
       # As root: the proc connector delivers real exec events.
       - run: sudo -E env "PATH=$PATH" cargo test -p guardian-platform --features testing --test linux -- --include-ignored
 
@@ -57,13 +61,16 @@ jobs:
       - run: cargo test -p guardian-core -p guardian-proto -p guardian-local -p guardian-platform --features guardian-platform/testing -- --include-ignored
       - run: cargo test -p guardian-agent
       - run: cargo test -p guardian-console --features testing
+      - run: cargo test -p guardian-setup --features testing
       - run: cargo build --release -p guardian-agent -p guardian-worker --target x86_64-pc-windows-msvc
       - run: cargo build --release -p guardian-agent -p guardian-worker --target i686-pc-windows-msvc
-      - run: cargo build --release -p guardian-console --target i686-pc-windows-msvc
+      - run: cargo build --release -p guardian-console -p guardian-setup --target i686-pc-windows-msvc
       - uses: actions/upload-artifact@v4
         with:
           name: console-windows
-          path: target/i686-pc-windows-msvc/release/guardian-console.exe
+          path: |
+            target/i686-pc-windows-msvc/release/guardian-console.exe
+            target/i686-pc-windows-msvc/release/guardian-setup.exe
       - uses: actions/upload-artifact@v4
         with:
           name: agent-windows

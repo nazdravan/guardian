@@ -1,11 +1,13 @@
-# Builds the release archive on every push to main, and publishes it as a
+# Builds the Guardian 3.0 archive on every push to main, and publishes it as a
 # GitHub Release only when ./VERSION names a version that has no tag yet.
 #
 #   guardian-<version>.zip
-#     server-linux/  server-windows/  agent-windows/  agent-linux/  guardian.apk
+#     server-linux/  server-windows/  console-windows/  agent-windows/  agent-linux/
 #
-# See scripts/package.sh for the layout. To ship a release: bump VERSION and
-# push to main. Any other push just rebuilds and keeps the zip as a run artifact.
+# Linux binaries come from the linux job, Windows ones (64-bit server, CLI and
+# agent; 32-bit agent, console and setup) from the windows job; the package job
+# packs them with scripts/package.sh. To ship a release: bump VERSION and push
+# to main. Any other push just rebuilds and keeps the zip as a run artifact.
 name: release
 
 on:
@@ -19,30 +21,83 @@ concurrency:
   group: release
   cancel-in-progress: false
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  console-tests:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --workspace --bins
+      - run: cargo test --workspace --all-features
+      - run: cargo build --release -p guardian-server -p guardian-cli -p guardian-agent -p guardian-worker
+      - name: Collect the Linux binaries
+        run: |
+          mkdir -p bin-linux
+          cp target/release/guardian-server target/release/guardian-cli \
+             target/release/guardian-agent target/release/guardian-worker bin-linux/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-linux
+          path: bin-linux/
+
+  windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          go-version-file: tools/whitelist-gui/go.mod
-          cache-dependency-path: tools/whitelist-gui/go.sum
-      # -SkipGui: the window smoke test needs an interactive desktop; the
-      # parsing, file and install logic is still covered.
-      - name: Guardian Console tests
+          targets: x86_64-pc-windows-msvc, i686-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -p guardian-setup --features testing
+      - run: cargo test -p guardian-console --features testing
+      - run: cargo build --release -p guardian-server -p guardian-cli -p guardian-agent -p guardian-worker --target x86_64-pc-windows-msvc
+      - run: cargo build --release -p guardian-agent -p guardian-worker -p guardian-console -p guardian-setup --target i686-pc-windows-msvc
+      - name: Collect the Windows binaries
         shell: pwsh
-        run: ./tools/whitelist-gui/test.ps1 -SkipGui
-      - uses: actions/setup-go@v5
+        run: |
+          New-Item -ItemType Directory -Force bin-win64, bin-win32 | Out-Null
+          foreach ($n in 'guardian-server', 'guardian-cli', 'guardian-agent', 'guardian-worker') {
+            Copy-Item "target/x86_64-pc-windows-msvc/release/$n.exe" bin-win64/
+          }
+          foreach ($n in 'guardian-agent', 'guardian-worker', 'guardian-console', 'guardian-setup') {
+            Copy-Item "target/i686-pc-windows-msvc/release/$n.exe" bin-win32/
+          }
+      # Authenticode only with a certificate in the secrets; without one the
+      # binaries ship unsigned and the run says so.
+      - name: Sign the Windows binaries
+        shell: pwsh
+        env:
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_CERT_PFX_BASE64) {
+            Write-Output "::warning::No WINDOWS_CERT_PFX_BASE64 secret: the Windows binaries are not signed."
+            exit 0
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP 'cert.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERT_PFX_BASE64))
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
+            Where-Object { $_.FullName -match '\\x64\\' } | Select-Object -Last 1
+          Get-ChildItem bin-win64/*.exe, bin-win32/*.exe | ForEach-Object {
+            & $signtool.FullName sign /f $pfx /p $env:WINDOWS_CERT_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $_.FullName
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          Remove-Item $pfx
+      - uses: actions/upload-artifact@v4
         with:
-          go-version-file: tools/server-gui/go.mod
-          cache-dependency-path: tools/server-gui/go.sum
-      - name: Guardian Server for Windows tests
-        shell: pwsh
-        run: ./tools/server-gui/test.ps1 -SkipGui
+          name: bin-win64
+          path: bin-win64/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-win32
+          path: bin-win32/
 
   package:
-    needs: console-tests
+    needs: [linux, windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -62,59 +117,15 @@ jobs:
             echo "New version $v: will publish a release."
           fi
 
-      - uses: actions/setup-go@v5
+      - uses: actions/download-artifact@v4
         with:
-          go-version-file: agent/go.mod
-          cache-dependency-path: |
-            server/go.sum
-            agent/go.sum
-            tools/whitelist-gui/go.sum
-            tools/server-gui/go.sum
+          path: bins
 
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      # Pinned to the line the project was created with (mobile/.metadata): newer
-      # Flutter demands a newer Gradle/AGP than mobile/android ships.
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          flutter-version: 3.35.x
-          cache: true
-
-      - name: go vet and tests
+      - name: Pack the archive
         run: |
-          (cd server && go vet ./... && go test ./...)
-          (cd tools/server-gui && go test ./core && GOOS=windows GOARCH=386 go vet ./...)
-          (cd agent && go vet ./... && GOOS=windows go vet ./...)
-
-      # A published APK must be signed with the release key, or phones refuse
-      # to update over the previous version.
-      - name: Release keystore
-        env:
-          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          RELEASE: ${{ steps.version.outputs.release }}
-        run: |
-          if [ -z "$KEYSTORE_BASE64" ]; then
-            if [ "$RELEASE" = "true" ]; then
-              echo "::error::ANDROID_KEYSTORE_BASE64 is not set; refusing to publish a debug-signed APK."
-              exit 1
-            fi
-            echo "::warning::No release keystore; the APK in this artifact is debug-signed."
-            exit 0
-          fi
-          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
-          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
-
-      - name: Build the archive
-        env:
-          BUILD_NUMBER: ${{ github.run_number }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: ./scripts/package.sh
+          chmod +x bins/bin-linux/*
+          bash scripts/test-package.sh
+          ./scripts/package.sh --linux bins/bin-linux --win64 bins/bin-win64 --win32 bins/bin-win32 --out dist
 
       - uses: actions/upload-artifact@v4
         with:
