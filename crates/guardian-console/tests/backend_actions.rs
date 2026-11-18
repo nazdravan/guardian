@@ -285,3 +285,35 @@ async fn permission_denied_is_shown() {
         "{evs:?}"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unauthenticated_call_ends_session() {
+    let (s, _t, c) = admin_console().await;
+    let token = guardian_console::settings::ConsoleSettings::load(&c.path)
+        .unwrap()
+        .token()
+        .unwrap()
+        .to_string();
+    // The session ends on the server; Watch only notices on its next re-check.
+    guardian_proto::v1::auth_client::AuthClient::new(s.grpc().await)
+        .logout(guardian_server::testing::req(
+            &token,
+            guardian_proto::v1::Empty {},
+        ))
+        .await
+        .unwrap();
+    c.b.send(Action::CreateRoom { name: "X".into() });
+    let evs = c
+        .until(
+            |e| matches!(e, Event::LoggedOut { reason: Some(_) }),
+            "the session to end",
+        )
+        .await;
+    assert!(!evs.is_empty());
+    assert!(
+        guardian_console::settings::ConsoleSettings::load(&c.path)
+            .unwrap()
+            .token()
+            .is_none()
+    );
+}

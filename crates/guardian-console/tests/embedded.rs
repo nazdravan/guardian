@@ -171,3 +171,58 @@ fn whoami_sid_is_parsed() {
     );
     assert_eq!(parse_whoami_sid("garbage"), None);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn forget_mode_then_start_embedded_does_not_race() {
+    let data = tempfile::tempdir().unwrap();
+    let port = free_port();
+    let c = Console::new();
+    start(&c, data.path(), port);
+    running_pin(&c).await;
+    c.b.send(Action::ForgetMode);
+    start(&c, data.path(), port);
+    running_pin(&c).await;
+    c.until(
+        |e| matches!(e, Event::Connection(ConnState::NeedsLogin { .. })),
+        "sign-in on the restarted server",
+    )
+    .await;
+    let s = ConsoleSettings::load(&c.path).unwrap();
+    assert!(matches!(s.mode, Some(Mode::Embedded { .. })), "{s:?}");
+}
+
+#[test]
+fn system_tools_use_absolute_paths() {
+    use guardian_console::firewall::system_tool;
+    let p = system_tool(std::path::Path::new(r"C:\Windows"), "netsh.exe");
+    assert_eq!(
+        p,
+        std::path::Path::new(r"C:\Windows")
+            .join("System32")
+            .join("netsh.exe")
+    );
+}
+
+#[test]
+fn elevation_is_one_prompt_for_delete_and_add() {
+    use guardian_console::firewall::elevated_script;
+    let s = elevated_script(std::path::Path::new(r"C:\Windows"), 8443);
+    assert_eq!(s.matches("Start-Process").count(), 1, "{s}");
+    assert!(s.contains("delete") && s.contains("localport=8443"), "{s}");
+    assert!(
+        s.contains(r"C:\Windows\System32\netsh.exe") || s.contains("System32"),
+        "{s}"
+    );
+}
+
+#[test]
+fn embedded_data_is_not_the_2x_folder() {
+    let d =
+        guardian_console::settings::embedded_data_dir_from(std::path::Path::new(r"C:\ProgramData"));
+    assert_eq!(
+        d,
+        std::path::Path::new(r"C:\ProgramData")
+            .join("Guardian")
+            .join("server")
+    );
+}

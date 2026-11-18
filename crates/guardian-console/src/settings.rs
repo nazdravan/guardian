@@ -220,13 +220,19 @@ pub fn settings_path() -> PathBuf {
     }
 }
 
-/// `%ProgramData%\Guardian Server`, or a per-user data directory elsewhere
+/// `<ProgramData>\Guardian\server`. Not `Guardian Server`: that folder belongs
+/// to the 2.x Go server, whose `guardian.db` has a different schema.
+pub fn embedded_data_dir_from(program_data: &Path) -> PathBuf {
+    program_data.join("Guardian").join("server")
+}
+
+/// `%ProgramData%\Guardian\server`, or a per-user data directory elsewhere
 /// (development only).
 pub fn embedded_data_dir() -> PathBuf {
     if cfg!(windows) {
-        env_dir("ProgramData")
-            .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"))
-            .join("Guardian Server")
+        embedded_data_dir_from(
+            &env_dir("ProgramData").unwrap_or_else(|| PathBuf::from(r"C:\ProgramData")),
+        )
     } else if cfg!(target_os = "macos") {
         env_dir("HOME")
             .map(|h| h.join("Library").join("Application Support"))

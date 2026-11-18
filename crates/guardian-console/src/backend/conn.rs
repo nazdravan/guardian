@@ -134,7 +134,7 @@ pub(crate) async fn logout(core: Arc<Core>) {
     core.emit_needs_login();
 }
 
-fn session_ended(core: &Arc<Core>) {
+pub(crate) fn session_ended(core: &Arc<Core>) {
     core.clear_token();
     core.reset_fleet();
     core.emit(Event::LoggedOut {

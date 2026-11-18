@@ -223,3 +223,44 @@ fn reconnecting_is_shown_with_the_last_state() {
     h.get_by_label_contains("Reconnecting… (attempt 2)");
     h.get_by_label("Sala 1");
 }
+
+#[test]
+fn failed_embedded_can_retry_or_change_mode() {
+    let mut s = ConsoleSettings::default();
+    s.mode = Some(Mode::Embedded { port: 8443 });
+    let (mut h, fake) = harness(s);
+    fake.push(Event::Embedded(EmbeddedState::Failed {
+        reason: "Port 8443 is already in use".into(),
+    }));
+    h.run();
+    h.get_by_label("Retry").click();
+    h.run();
+    assert!(fake.sent().iter().any(|a| matches!(
+        a,
+        Action::StartEmbedded {
+            data_dir: None,
+            port: 8443
+        }
+    )));
+    h.get_by_label("Change mode…").click();
+    h.run();
+    h.get_by_label("Yes").click();
+    h.run();
+    assert!(fake.sent().iter().any(|a| matches!(a, Action::ForgetMode)));
+    h.get_by_label("Welcome to Guardian Console");
+}
+
+#[test]
+fn unreachable_server_can_change_mode_without_signing_in() {
+    let (mut h, fake) = harness(remote());
+    fake.push(Event::Connection(ConnState::Reconnecting {
+        attempt: 3,
+        error: "Cannot reach the server".into(),
+    }));
+    h.run();
+    h.get_by_label("Change mode…").click();
+    h.run();
+    h.get_by_label("Yes").click();
+    h.run();
+    assert!(fake.sent().iter().any(|a| matches!(a, Action::ForgetMode)));
+}

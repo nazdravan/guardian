@@ -37,7 +37,7 @@ pub async fn start_embedded(data_dir: &Path, port: u16) -> Result<ServerHandle, 
     guardian_server::start(cfg).await.map_err(|e| match &e {
         StartError::Io(io) if io.kind() == std::io::ErrorKind::AddrInUse => format!(
             "Port {port} is already in use — another Guardian server or program is using it. \
-             Close it or choose another port in Settings."
+             Close it, or use Change mode… to pick another port."
         ),
         StartError::Io(io) if io.kind() == std::io::ErrorKind::PermissionDenied => {
             format!("Cannot use {}: access denied.", data_dir.display())
@@ -68,31 +68,37 @@ pub fn prepare_data_dir(dir: &Path) -> Result<(), String> {
     {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        let out = std::process::Command::new("whoami")
-            .args(["/user", "/fo", "csv", "/nh"])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output()
-            .map_err(|e| format!("whoami: {e}"))?;
+        let out = std::process::Command::new(crate::firewall::system_tool(
+            &crate::firewall::system_root(),
+            "whoami.exe",
+        ))
+        .args(["/user", "/fo", "csv", "/nh"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|e| format!("whoami: {e}"))?;
         let sid = parse_whoami_sid(&String::from_utf8_lossy(&out.stdout))
             .ok_or_else(|| "Cannot find the current user's SID.".to_string())?;
         let me = format!("*{sid}:(OI)(CI)F");
-        let out = std::process::Command::new("icacls")
-            .arg(dir)
-            .args([
-                "/inheritance:r",
-                "/grant:r",
-                "*S-1-5-18:(OI)(CI)F",
-                "/grant:r",
-                "*S-1-5-32-544:(OI)(CI)F",
-                "/grant:r",
-                &me,
-                "/T",
-                "/C",
-                "/Q",
-            ])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output()
-            .map_err(|e| format!("icacls: {e}"))?;
+        let out = std::process::Command::new(crate::firewall::system_tool(
+            &crate::firewall::system_root(),
+            "icacls.exe",
+        ))
+        .arg(dir)
+        .args([
+            "/inheritance:r",
+            "/grant:r",
+            "*S-1-5-18:(OI)(CI)F",
+            "/grant:r",
+            "*S-1-5-32-544:(OI)(CI)F",
+            "/grant:r",
+            &me,
+            "/T",
+            "/C",
+            "/Q",
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|e| format!("icacls: {e}"))?;
         if !out.status.success() {
             return Err(format!(
                 "Cannot protect {}: {}",

@@ -569,10 +569,22 @@ impl RealBackend {
                 });
                 rt.block_on(async {
                     while let Some(a) = arx.recv().await {
-                        if matches!(a, Action::Shutdown) {
-                            break;
+                        match a {
+                            Action::Shutdown => break,
+                            // Connection and server lifecycle run one at a time, in order,
+                            // so a Change mode is finished before the next Start.
+                            Action::Connect { .. }
+                            | Action::Login { .. }
+                            | Action::Init { .. }
+                            | Action::Logout
+                            | Action::StartEmbedded { .. }
+                            | Action::StopEmbedded
+                            | Action::ForgetMode
+                            | Action::OpenFirewall => guarded(core.clone(), a).await,
+                            other => {
+                                tokio::spawn(guarded(core.clone(), other));
+                            }
                         }
-                        tokio::spawn(guarded(core.clone(), a));
                     }
                     core.abort_session();
                     stop_embedded(&core).await;

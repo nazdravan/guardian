@@ -345,6 +345,27 @@ impl<B: Backend> ConsoleApp<B> {
         if let Some(r) = &self.logout_reason {
             ui.label(r.as_str());
         }
+        // Ways out that need no session: a typo in the address, a busy port, a
+        // teacher who cannot open the admin Settings tab.
+        ui.horizontal(|ui| {
+            if let (EmbeddedState::Failed { .. }, Some(Mode::Embedded { port })) =
+                (&self.embedded, &self.mode)
+                && ui.button("Retry").clicked()
+            {
+                self.backend.send(Action::StartEmbedded {
+                    data_dir: None,
+                    port: *port,
+                });
+            }
+            if ui.button("Change mode…").clicked() {
+                self.admin.confirm = Some(Confirm::ChangeMode);
+            }
+        });
+        ui.add_space(6.0);
+        if matches!(self.embedded, EmbeddedState::Failed { .. }) {
+            self.admin_confirmation(ui);
+            return;
+        }
         match self.conn {
             ConnState::NeedsLogin { can_init } => {
                 if let Some(a) = self.login.show(ui, can_init) {
@@ -356,6 +377,7 @@ impl<B: Backend> ConsoleApp<B> {
             }
             ConnState::Reconnecting { .. } | ConnState::Online => {}
         }
+        self.admin_confirmation(ui);
     }
 
     fn password_window(&mut self, ui: &mut egui::Ui) {

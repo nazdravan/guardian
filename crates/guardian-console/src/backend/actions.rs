@@ -32,6 +32,7 @@ async fn load_profiles(core: &Core, a: Authed) {
             core.emit(Event::Profiles(ps));
             core.emit(Event::Fleet(f));
         }
+        Err(st) if st.code() == tonic::Code::Unauthenticated => {}
         Err(st) => core.emit(Event::Error(status_text(&st))),
     }
 }
@@ -48,7 +49,14 @@ pub(crate) async fn run(core: Arc<Core>, action: Action) {
     let Some(a) = authed(&core) else { return };
     let mut admin = AdminClient::new(a.clone());
     let done = |m: String| core.emit(Event::Done(m));
-    let fail = |st: tonic::Status| core.emit(Event::Error(status_text(&st)));
+    let fail = |st: tonic::Status| {
+        if st.code() == tonic::Code::Unauthenticated {
+            core.abort_session();
+            super::conn::session_ended(&core);
+        } else {
+            core.emit(Event::Error(status_text(&st)));
+        }
+    };
     match action {
         Action::SetRoomProfile {
             room_id,

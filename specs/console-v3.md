@@ -29,7 +29,7 @@ stays up. No `unsafe` in the crate.
 |---|---|---|
 | Settings `console.toml` (0600) | `%APPDATA%\Guardian\console.toml` | `<config dir>/guardian/console.toml` |
 | Lock `console.lock` | next to the settings | next to the settings |
-| Embedded server data | `%ProgramData%\Guardian Server\` (ACL: SYSTEM, Administrators, the creating user) | `<data dir>/guardian-server/` (0700) |
+| Embedded server data | `%ProgramData%\Guardian\server\` (ACL: SYSTEM, Administrators, the creating user; not the 2.x `Guardian Server` folder, whose `guardian.db` has another schema) | `<data dir>/guardian-server/` (0700) |
 | Log | `%LOCALAPPDATA%\Guardian\console.log` | `<cache dir>/guardian/console.log` |
 
 `console.toml` keys: `mode` (`remote` | `embedded`), `server` and `cert_sha256` (remote), `port` (embedded,
@@ -46,7 +46,13 @@ session). The token never reaches the log or the screen.
   the first administrator itself (it holds the bootstrap code). The server stops when the window closes; agents
   then keep their last state. If the port is taken the card says so in words and never shows "running".
   On Windows, when the firewall rule `Guardian Console server` (TCP inbound, any profile,
-  `remoteip=localsubnet`) is missing, a banner offers **Open firewall port…**.
+  `remoteip=localsubnet`) is missing, a banner offers **Open firewall port…**: one UAC prompt runs
+  `cmd /c netsh … delete & netsh … add`. System tools (`netsh`, `icacls`, `whoami`, `cmd`, `powershell`) are
+  started by absolute path under `%SystemRoot%\System32`, never by bare name.
+- The sign-in screen always has **Change mode…** (and **Retry** when the embedded server failed), so a typo in
+  the address or a busy port never leaves the console stuck, whatever the user's role.
+- Connect, sign-in, sign-out, server start/stop and Change mode run one at a time, in order; admin calls run in
+  parallel. `UNAUTHENTICATED` on any call ends the session like it does on `Watch`.
 - Both modes reconnect with backoff 1 s → 30 s and keep showing the last state with "Reconnecting… (attempt N)".
   `UNAUTHENTICATED` (expired session, disabled user) sends the user back to sign-in with the reason.
 
@@ -113,11 +119,13 @@ CI: the `linux` job runs them all; the `windows` job runs the crate's tests and 
 ## Manual checks on Windows (before release)
 
 1. As a user **without** administrator rights: remote mode connects, signs in, switches a room profile.
-2. Embedded mode: the firewall banner appears; **Open firewall port…** shows the UAC prompt; afterwards
+2. Embedded mode: the firewall banner appears; **Open firewall port…** shows exactly **one** UAC prompt; afterwards
    `netsh advfirewall firewall show rule name="Guardian Console server"` shows `remoteip=LocalSubnet`.
 3. An agent on another PC enrolls with the command from Connection info and appears online.
 4. Closing the window stops the server; the agent keeps its last profile.
 5. A second start shows "Guardian Console is already running."
 6. "Lecție" and other diacritics display correctly.
-7. On a PC without a GPU driver the window still opens (wgpu WARP or the glow fallback); otherwise the error
+7. Start `guardian-console.exe` from Downloads, and on a PC that still has a 2.x `Guardian Server` data folder:
+   both work (the 3.0 data goes to `%ProgramData%\Guardian\server`).
+8. On a PC without a GPU driver the window still opens (wgpu WARP or the glow fallback); otherwise the error
    dialog names the log file.
