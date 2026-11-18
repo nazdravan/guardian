@@ -1,29 +1,29 @@
-Guardian Server for Windows
-===========================
+Guardian 3.0 server for Windows
+===============================
 
-Run the Guardian server on the teacher's own computer and manage the class
-from one window. The server runs only while the window is open; when you close
-it, the student computers keep the last rules they received.
+guardian-server.exe is the Guardian server as a Windows service (64-bit).
+Use it when the server should run all the time on a Windows machine. To run
+the server only while the teacher's window is open, use guardian-console.exe
+("Run the server on this computer") instead.
 
-First run
----------
-1. Double-click GuardianServer.exe and accept the administrator prompt.
-   It opens port 8080 in Windows Firewall (local network only) and creates
-   C:\ProgramData\Guardian Server\ with the database and .env (tokens).
-2. Click "Connection info..." (above the Computers list) and copy into each student computer's agent.env:
-       SERVER_ADDRESS=http://<THIS-COMPUTER-NAME>:8080
-       TOKEN=<the agent TOKEN shown>
-3. In the Android app (optional), use the phone address and ADMIN_TOKEN shown.
-   Android usually cannot find a Windows computer by name, so use the IP
-   address; it may change from day to day.
+Install (in an administrator prompt, from this folder)
+------------------------------------------------------
+    copy guardian-server.exe "C:\Program Files\Guardian Server\"
+    "C:\Program Files\Guardian Server\guardian-server.exe" service install
 
-Notes
------
-- Do NOT install a Guardian agent on this computer: it would appear as a PC
-  and "Block all PCs" would apply to it.
-- Windows agents find this computer by name. Linux agents usually do too
-  (through systemd-resolved); if not, use the IP address or ask for a fixed
-  address (DHCP reservation) on the router.
-- If no agent has connected after 2 minutes, the window shows a warning.
-- Tokens are generated once and kept in C:\ProgramData\Guardian Server\.env.
-  Replacing GuardianServer.exe keeps them.
+The service is GuardianServer (automatic start). Its data, the database and a
+self-signed certificate, is in C:\ProgramData\Guardian Server\ (SYSTEM and
+Administrators only). Install the exe from a folder only administrators can
+write, such as Program Files: the service runs it as LocalSystem.
+
+Open TCP port 8443 for the school network:
+    netsh advfirewall firewall add rule name="Guardian server" dir=in action=allow protocol=TCP localport=8443 remoteip=localsubnet
+
+First administrator
+-------------------
+The service log shows the certificate SHA-256 and, until the first
+administrator exists, a bootstrap code. Create the administrator with
+    guardian-cli.exe init --server https://<THIS-COMPUTER>:8443 --cert-sha256 <sha256>
+or from guardian-console.exe ("Connect to a server").
+
+Remove: guardian-server.exe service uninstall

@@ -1,28 +1,49 @@
-#!/bin/bash
-# Installs or upgrades the Guardian agent on Linux as a systemd service.
-# Run it from the unpacked agent-linux/ folder of the release archive.
-set -e
+#!/bin/sh
+# Installs or upgrades the Guardian 3.0 agent as the systemd service
+# `guardian-agent` and enrolls this computer on the first run.
+#
+#   sudo ./install.sh wss://server:8443 ENROLL-CODE [CERT_SHA256]
+#
+# Running it again upgrades the binaries and never re-enrolls.
+#
+# Local fallback mode: the agent listens on TCP and UDP port 11500 (set
+# `local_port = N` in agent.toml, `0` = off). Most Linux desktops have no
+# firewall; with ufw or firewalld, allow 11500/tcp and 11500/udp from the
+# school network only.
+set -eu
 
-if [ "$EUID" -ne 0 ]; then
-  echo "Switching to root..."
-  exec sudo bash "$0" "$@"
-fi
-
-cd "$(dirname "$0")"
+HERE=$(cd "$(dirname "$0")" && pwd)
 DIR=/opt/guardian-agent
+CONFIG=/etc/guardian-agent/agent.toml
+DATA=/var/lib/guardian-agent
+UNIT=/etc/systemd/system/guardian-agent.service
 
-mkdir -p "$DIR"
-systemctl stop guardian-agent 2>/dev/null || true
-install -m 0755 procsentinel-agent "$DIR/procsentinel-agent"
-# An upgrade keeps the configuration: .env is only written on first install.
-if [ ! -f "$DIR/.env" ]; then
-  install -m 0600 agent.env "$DIR/.env"
-  echo "Created $DIR/.env from agent.env - set SERVER_ADDRESS and TOKEN there."
-else
-  echo "Keeping existing $DIR/.env"
+if [ "$(id -u)" -ne 0 ]; then
+    echo "Run as root: sudo $0 wss://server:port CODE [CERT_SHA256]" >&2
+    exit 1
 fi
-install -m 0644 guardian-agent.service /etc/systemd/system/guardian-agent.service
+
+install -d -m 0755 "$DIR"
+install -m 0755 "$HERE/guardian-agent" "$DIR/guardian-agent"
+install -m 0755 "$HERE/guardian-worker" "$DIR/guardian-worker"
+install -d -m 0700 /etc/guardian-agent "$DATA"
+
+if grep -q '^computer_id' "$CONFIG" 2>/dev/null; then
+    echo "Already enrolled ($(grep '^computer_id' "$CONFIG")); keeping the enrollment."
+else
+    if [ $# -lt 2 ]; then
+        echo "Usage: sudo $0 wss://server:port CODE [CERT_SHA256]" >&2
+        exit 1
+    fi
+    set -- --server "$1" --code "$2" ${3:+--cert-sha256 "$3"}
+    "$DIR/guardian-agent" --config "$CONFIG" --data-dir "$DATA" enroll "$@"
+fi
+
+install -m 0644 "$HERE/guardian-agent.service" "$UNIT"
 systemctl daemon-reload
-systemctl enable guardian-agent
+systemctl enable guardian-agent >/dev/null
 systemctl restart guardian-agent
-systemctl status guardian-agent --no-pager
+
+echo
+echo "Guardian agent is running:"
+"$DIR/guardian-agent" --config "$CONFIG" --data-dir "$DATA" status || true

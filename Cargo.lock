@@ -2055,7 +2055,7 @@ dependencies = [
 
 [[package]]
 name = "guardian-agent"
-version = "3.0.0-dev"
+version = "3.0.0"
 dependencies = [
  "clap",
  "futures-util",
@@ -2083,7 +2083,7 @@ dependencies = [
 
 [[package]]
 name = "guardian-applog"
-version = "3.0.0-dev"
+version = "3.0.0"
 dependencies = [
  "tempfile",
  "tracing",
@@ -2092,7 +2092,7 @@ dependencies = [
 
 [[package]]
 name = "guardian-cli"
-version = "3.0.0-dev"
+version = "3.0.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -2112,7 +2112,7 @@ dependencies = [
 
 [[package]]
 name = "guardian-client"
-version = "3.0.0-dev"
+version = "3.0.0"
 dependencies = [
  "guardian-proto",
  "guardian-server",
@@ -2132,7 +2132,7 @@ dependencies = [
 
 [[package]]
 name = "guardian-console"
-version = "3.0.0-dev"
+version = "3.0.0"
 dependencies = [
  "argon2",
  "clap",
@@ -2166,7 +2166,7 @@ dependencies = [
 
 [[package]]
 name = "guardian-core"
-version = "3.0.0-dev"
+version = "3.0.0"
 dependencies = [
  "curve25519-dalek 5.0.0",
  "ed25519-dalek",
@@ -2179,7 +2179,7 @@ dependencies = [
 
 [[package]]
 name = "guardian-local"
-version = "3.0.0-dev"
+version = "3.0.0"
 dependencies = [
  "guardian-core",
  "guardian-proto",
@@ -2191,7 +2191,7 @@ dependencies = [
 
 [[package]]
 name = "guardian-platform"
-version = "3.0.0-dev"
+version = "3.0.0"
 dependencies = [
  "async-trait",
  "ferrisetw",
@@ -2212,7 +2212,7 @@ dependencies = [
 
 [[package]]
 name = "guardian-proto"
-version = "3.0.0-dev"
+version = "3.0.0"
 dependencies = [
  "prost",
  "protox",
@@ -2223,7 +2223,7 @@ dependencies = [
 
 [[package]]
 name = "guardian-server"
-version = "3.0.0-dev"
+version = "3.0.0"
 dependencies = [
  "argon2",
  "axum",
@@ -2262,7 +2262,7 @@ dependencies = [
 
 [[package]]
 name = "guardian-setup"
-version = "3.0.0-dev"
+version = "3.0.0"
 dependencies = [
  "clap",
  "eframe",
@@ -2285,7 +2285,7 @@ dependencies = [
 
 [[package]]
 name = "guardian-worker"
-version = "3.0.0-dev"
+version = "3.0.0"
 dependencies = [
  "clap",
  "guardian-platform",

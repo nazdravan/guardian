@@ -1,18 +1,22 @@
-#!/bin/bash
-# Removes the Guardian agent service. Pass --purge to also delete /opt/guardian-agent
-# (its .env, whitelist.txt and sync.json).
-set -e
+#!/bin/sh
+# Removes the Guardian 3.0 agent service and binaries. The enrollment
+# (/etc/guardian-agent) and the saved state (/var/lib/guardian-agent) are
+# kept unless --purge is given.
+set -eu
 
-if [ "$EUID" -ne 0 ]; then
-  exec sudo bash "$0" "$@"
+if [ "$(id -u)" -ne 0 ]; then
+    echo "Run as root: sudo $0 [--purge]" >&2
+    exit 1
 fi
 
-systemctl disable --now guardian-agent 2>/dev/null || true
+systemctl disable --now guardian-agent >/dev/null 2>&1 || true
 rm -f /etc/systemd/system/guardian-agent.service
 systemctl daemon-reload
-if [ "$1" = "--purge" ]; then
-  rm -rf /opt/guardian-agent
-  echo "Removed /opt/guardian-agent"
+rm -rf /opt/guardian-agent
+
+if [ "${1:-}" = "--purge" ]; then
+    rm -rf /etc/guardian-agent /var/lib/guardian-agent
+    echo "Guardian agent removed, with its enrollment and state."
 else
-  echo "Service removed; configuration kept in /opt/guardian-agent"
+    echo "Guardian agent removed. Enrollment and state kept in /etc/guardian-agent and /var/lib/guardian-agent (use --purge to delete)."
 fi

@@ -1,71 +1,60 @@
 #!/usr/bin/env bash
-# Builds every component and packs the release archive:
+# Packs the Guardian 3.0 release archive from binaries that are already built
+# (CI builds them on Linux and Windows):
 #
-#   dist/guardian-<version>.zip
-#     guardian-<version>/
-#       server-linux/    guardian-server (linux/amd64), server.env, install.sh, systemd unit, Docker files
-#       server-windows/  GuardianServer.exe (windows/386 GUI that runs the server), README.txt
-#       agent-windows/   Guardian.exe, Install/Uninstall .bat, agent.env, bin/ (ps1 + 32/64-bit agent)
-#       agent-linux/     procsentinel-agent (linux/amd64), agent.env, install.sh, uninstall.sh, systemd unit
-#       guardian.apk
+#   guardian-<VERSION>.zip
+#     guardian-<VERSION>/
+#       server-linux/    guardian-server, guardian-cli, guardian-server.service, install.sh
+#       server-windows/  guardian-server.exe, guardian-cli.exe (64-bit), README.txt
+#       console-windows/ guardian-console.exe (32-bit), README.txt
+#       agent-windows/   guardian-setup.exe (32-bit), README.txt, bin/x64/…, bin/x86/…
+#       agent-linux/     guardian-agent, guardian-worker, guardian-agent.service, install.sh, uninstall.sh
 #
-# The version comes from ./VERSION. Templates live in packaging/; dist/ is build
-# output only and is not tracked by git.
+#   scripts/package.sh --linux DIR --win64 DIR --win32 DIR [--out DIR]
 #
-# Needs: go, zip, and flutter (unless SKIP_APK=1).
-# APK signing: set ANDROID_KEYSTORE_PATH, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and
-# ANDROID_KEY_PASSWORD; without them the APK is signed with the debug key (local builds only).
+# The version comes from ./VERSION; the templates from packaging/.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+LINUX="" WIN64="" WIN32="" OUTDIR="$ROOT/dist"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --linux) LINUX="$2"; shift 2 ;;
+    --win64) WIN64="$2"; shift 2 ;;
+    --win32) WIN32="$2"; shift 2 ;;
+    --out) OUTDIR="$2"; shift 2 ;;
+    *) echo "usage: $0 --linux DIR --win64 DIR --win32 DIR [--out DIR]" >&2; exit 2 ;;
+  esac
+done
+for d in "$LINUX" "$WIN64" "$WIN32"; do
+  [ -n "$d" ] && [ -d "$d" ] || { echo "usage: $0 --linux DIR --win64 DIR --win32 DIR [--out DIR]" >&2; exit 2; }
+done
+
 VERSION="$(tr -d '[:space:]' < "$ROOT/VERSION")"
-BUILD_NUMBER="${BUILD_NUMBER:-1}"
 NAME="guardian-$VERSION"
-OUT="$ROOT/dist/$NAME"
+OUT="$OUTDIR/$NAME"
 
-rm -rf "$OUT" "$ROOT/dist/$NAME.zip"
+need() { # <dir> <file>
+  [ -f "$1/$2" ] || { echo "error: $1/$2 is missing" >&2; exit 1; }
+}
+for f in guardian-server guardian-cli guardian-agent guardian-worker; do need "$LINUX" "$f"; done
+for f in guardian-server.exe guardian-cli.exe guardian-agent.exe guardian-worker.exe; do need "$WIN64" "$f"; done
+for f in guardian-agent.exe guardian-worker.exe guardian-console.exe guardian-setup.exe; do need "$WIN32" "$f"; done
+
+rm -rf "$OUT" "$OUTDIR/$NAME.zip"
 mkdir -p "$OUT"
-cp -R "$ROOT/packaging/server-linux" "$ROOT/packaging/server-windows" "$ROOT/packaging/agent-windows" "$ROOT/packaging/agent-linux" "$OUT/"
+for d in server-linux server-windows console-windows agent-windows agent-linux; do
+  cp -R "$ROOT/packaging/$d" "$OUT/"
+done
 
-gobuild() { # <module dir> <GOOS> <GOARCH> <output> [extra ldflags]
-  (cd "$ROOT/$1" && CGO_ENABLED=0 GOOS="$2" GOARCH="$3" \
-    go build -trimpath -ldflags "-s -w ${5:-}" -o "$4" .)
-}
+install -m 0755 "$LINUX/guardian-server" "$LINUX/guardian-cli" "$OUT/server-linux/"
+install -m 0755 "$LINUX/guardian-agent" "$LINUX/guardian-worker" "$OUT/agent-linux/"
+cp "$WIN64/guardian-server.exe" "$WIN64/guardian-cli.exe" "$OUT/server-windows/"
+cp "$WIN32/guardian-console.exe" "$OUT/console-windows/"
+cp "$WIN32/guardian-setup.exe" "$OUT/agent-windows/"
+mkdir -p "$OUT/agent-windows/bin/x64" "$OUT/agent-windows/bin/x86"
+cp "$WIN64/guardian-agent.exe" "$WIN64/guardian-worker.exe" "$OUT/agent-windows/bin/x64/"
+cp "$WIN32/guardian-agent.exe" "$WIN32/guardian-worker.exe" "$OUT/agent-windows/bin/x86/"
 
-echo "==> server (linux/amd64)"
-gobuild server linux amd64 "$OUT/server-linux/guardian-server"
-
-echo "==> agent (windows/amd64, windows/386, linux/amd64)"
-mkdir -p "$OUT/agent-windows/bin/agent"
-gobuild agent windows amd64 "$OUT/agent-windows/bin/agent/procsentinel-agent64.exe"
-gobuild agent windows 386 "$OUT/agent-windows/bin/agent/procsentinel-agent32.exe"
-gobuild agent linux amd64 "$OUT/agent-linux/procsentinel-agent"
-
-# guibuild <module dir> <manifest> <output>: same steps as the tools' build.ps1 —
-# embed manifest + icon, GUI subsystem, 32-bit so one exe runs on any Windows.
-guibuild() {
-  SYSO="$ROOT/$1/rsrc_windows_386.syso"
-  trap 'rm -f "$SYSO"' EXIT
-  (cd "$ROOT/$1" && go run github.com/akavel/rsrc@v0.10.2 -manifest "$2" -ico guardian.ico -arch 386 -o "$SYSO")
-  gobuild "$1" windows 386 "$3" "-H windowsgui"
-  rm -f "$SYSO"
-}
-
-echo "==> Guardian Console (windows/386)"
-guibuild tools/whitelist-gui whitelist-gui.manifest "$OUT/agent-windows/Guardian.exe"
-
-echo "==> Guardian Server for Windows (windows/386)"
-guibuild tools/server-gui server-gui.manifest "$OUT/server-windows/GuardianServer.exe"
-
-if [ "${SKIP_APK:-0}" != "1" ]; then
-  echo "==> mobile (apk)"
-  (cd "$ROOT/mobile" && flutter pub get && \
-    flutter build apk --release --build-name="$VERSION" --build-number="$BUILD_NUMBER")
-  cp "$ROOT/mobile/build/app/outputs/flutter-apk/app-release.apk" "$OUT/guardian.apk"
-else
-  echo "==> mobile skipped (SKIP_APK=1)"
-fi
-
-echo "==> $NAME.zip"
-(cd "$ROOT/dist" && zip -qr "$NAME.zip" "$NAME")
-echo "dist/$NAME.zip"
+(cd "$OUTDIR" && zip -qr "$NAME.zip" "$NAME")
+echo "$OUTDIR/$NAME.zip"
