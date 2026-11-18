@@ -6,6 +6,10 @@ rust-version.workspace = true
 license.workspace = true
 description = "Guardian 3.0 agent installer and diagnostics for Windows"
 
+[[bin]]
+name = "guardian-setup"
+path = "src/main.rs"
+
 [features]
 # FakeHost for tests.
 testing = ["dep:tempfile"]
@@ -19,6 +23,10 @@ serde_json.workspace = true
 thiserror.workspace = true
 clap.workspace = true
 tracing.workspace = true
+egui.workspace = true
+eframe.workspace = true
+rfd.workspace = true
+guardian-applog.workspace = true
 tempfile = { workspace = true, optional = true }
 
 [target.'cfg(windows)'.dependencies]
@@ -28,6 +36,7 @@ windows-service.workspace = true
 winresource.workspace = true
 
 [dev-dependencies]
+egui_kittest.workspace = true
 guardian-setup = { path = ".", features = ["testing"] }
 serde_json.workspace = true
 

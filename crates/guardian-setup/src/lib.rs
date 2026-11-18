@@ -4,7 +4,9 @@
 
 #![forbid(unsafe_code)]
 
+pub mod app;
 pub mod cli;
+pub mod elevate;
 #[cfg(feature = "testing")]
 pub mod fake;
 pub mod host;

@@ -2265,10 +2265,15 @@ name = "guardian-setup"
 version = "3.0.0-dev"
 dependencies = [
  "clap",
+ "eframe",
+ "egui",
+ "egui_kittest",
  "guardian-agent",
+ "guardian-applog",
  "guardian-core",
  "guardian-platform",
  "guardian-setup",
+ "rfd",
  "serde",
  "serde_json",
  "tempfile",

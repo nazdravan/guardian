@@ -82,3 +82,60 @@ pub trait Host: Send + Sync {
     /// Waits (a no-op in tests).
     fn wait(&self, d: Duration);
 }
+
+/// A host for other systems: it reads the environment and refuses the rest
+/// (the setup is for Windows; this keeps `--help` and `version` working).
+#[derive(Debug, Default, Clone, Copy)]
+pub struct UnsupportedHost;
+
+fn unsupported() -> HostError {
+    HostError::Failed("guardian-setup manages the agent on Windows only".into())
+}
+
+impl Host for UnsupportedHost {
+    fn env(&self, var: &str) -> Option<String> {
+        std::env::var(var).ok()
+    }
+    fn is_elevated(&self) -> bool {
+        false
+    }
+    fn setup_dir(&self) -> PathBuf {
+        PathBuf::from(".")
+    }
+    fn io_path(&self, canonical: &WinPath) -> PathBuf {
+        PathBuf::from(canonical.as_str())
+    }
+    fn service(&self, _name: &str) -> Result<Option<ServiceState>, HostError> {
+        Err(unsupported())
+    }
+    fn start_service(&self, _name: &str, _timeout: Duration) -> Result<(), HostError> {
+        Err(unsupported())
+    }
+    fn stop_service(&self, _name: &str, _timeout: Duration) -> Result<(), HostError> {
+        Err(unsupported())
+    }
+    fn delete_service(&self, _name: &str) -> Result<(), HostError> {
+        Err(unsupported())
+    }
+    fn run(&self, _exe: &Path, _args: &[String]) -> Result<RunOutput, HostError> {
+        Err(unsupported())
+    }
+    fn processes(&self) -> Result<Vec<ProcessInfo>, HostError> {
+        Err(unsupported())
+    }
+    fn trusted_roots(&self) -> TrustedRoots {
+        TrustedRoots::none()
+    }
+    fn firewall_rule(&self, _name: &str) -> Result<bool, HostError> {
+        Err(unsupported())
+    }
+    fn set_firewall_rule(&self, _name: &str, _port: u16) -> Result<(), HostError> {
+        Err(unsupported())
+    }
+    fn delete_firewall_rule(&self, _name: &str) -> Result<(), HostError> {
+        Err(unsupported())
+    }
+    fn wait(&self, d: Duration) {
+        std::thread::sleep(d);
+    }
+}
