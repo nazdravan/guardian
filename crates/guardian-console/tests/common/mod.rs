@@ -54,7 +54,17 @@ impl Console {
     /// Polls until an event matching `pred` arrives; returns the events since
     /// the call.
     pub async fn until(&self, pred: impl Fn(&Event) -> bool, what: &str) -> Vec<Event> {
-        let end = Instant::now() + WAIT;
+        self.until_within(WAIT, pred, what).await
+    }
+
+    /// [`Console::until`] with another time limit.
+    pub async fn until_within(
+        &self,
+        wait: Duration,
+        pred: impl Fn(&Event) -> bool,
+        what: &str,
+    ) -> Vec<Event> {
+        let end = Instant::now() + wait;
         let mut got = Vec::new();
         loop {
             {
