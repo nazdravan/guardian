@@ -13,13 +13,15 @@ school network. Server: [`server-v3.md`](server-v3.md); agent: [`agent-v3.md`](a
   `online` ("use the server"). A revoked agent answers `revoked`.
 - **Console:** only in **remote** mode (in embedded mode the server runs inside the console), only after it was
   enrolled for fallback, and only while it cannot reach the server. It leaves fallback mode by itself the moment
-  the server answers again (within its reconnect backoff, at most 30 s).
+  the server answers again (within its reconnect backoff, at most 30 s); a sign-in that fails because the server
+  is unreachable restarts that reconnect loop.
 
 ## Keys and the channel
 
 - A console enrolls with an `ENROLL_CONSOLE` code (`Auth.EnrollConsole`); an admin can do it in one click (the
-  console creates a one-use, 15-minute code itself). The key is the console's ed25519 key in `console.key` next
-  to `console.toml` (per Windows account, 0600); the console id and the cache live in `fallback.pb`.
+  console creates a one-use, 15-minute code itself). Every enrollment makes a fresh ed25519 key, saved in
+  `console.key` next to `console.toml` (per Windows account, 0600) once the server accepted it, so enabling again
+  after a revoke works; the console id and the cache live in `fallback.pb`.
 - Agents get the non-revoked consoles' keys and the authorized users (active admins + the teachers of their room)
   in `Welcome` / `TrustUpdate` (stage 1). Consoles get the agents' keys in `Computer.public_key` through `Watch`.
 - Channel (`crates/guardian-local`): **`Noise_IK_25519_ChaChaPoly_BLAKE2s`** (`snow`) over TCP. The X25519 keys
@@ -27,7 +29,10 @@ school network. Server: [`server-v3.md`](server-v3.md); agent: [`agent-v3.md`](a
   console is the initiator (it knows the agent's key); its first payload is its console id, which must belong to
   the static key it used. Unknown consoles get nothing back. Frames: big-endian `u16` length + one Noise message
   carrying one protobuf message (`LocalRequest` / `LocalReply`, `proto/guardian/v1/local.proto`).
-- Limits: handshake **5 s**, idle **30 s**, at most **16** connections at once (more are closed at once).
+- Limits: the handshake **and the first request** must arrive within **5 s** (a recorded first handshake
+  message replays fine but cannot be followed by a request, so it is dropped as fast as a silent peer); idle
+  **30 s**; at most **16** pending handshakes (a new one evicts the oldest) and **4** per address (evicting that
+  address's oldest), and at most **16** signed-in sessions.
 - Users: the console checks the password (online: the server; offline: an argon2id verifier kept for users who
   signed in on this console while the server was reachable; or the user of the saved session, without a
   password). The agent then checks the claimed user (id **and** login) against its own `AuthorizedUser` list, so
@@ -40,7 +45,8 @@ cached ones on its `fallback_port`; computers that do not answer are looked for 
 `DiscoverRequest` (signed by the console, `guardian/v1/discover`) sent to `255.255.255.255` and every interface's
 broadcast address. Agents that trust the console answer `DiscoverReply` (signed, `guardian/v1/discover-reply`,
 with their TCP port and whether they are online) to the sender; replies with another key or nonce are ignored.
-Datagrams over 1 KiB are ignored; an agent answers at most 50 a second.
+Datagrams over 1 KiB are ignored; an agent answers each (console, nonce) once (the last 256 are remembered), at
+most 5 replies a second to one address and 50 in all.
 
 Port: **11500** TCP + UDP on both sides — `local_port` in `agent.toml` (`0` = off) and `fallback_port` in
 `console.toml`; they must match across the school. A busy port turns the agent's listener off (logged); the agent
