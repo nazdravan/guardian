@@ -103,6 +103,7 @@ impl Admin for AdminSvc {
             format!("room:{}", room.id),
             name,
         );
+        self.state.room_changed(room.id);
         Ok(Response::new(room))
     }
 

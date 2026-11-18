@@ -302,3 +302,19 @@ async fn room_changes_are_streamed() {
         other => panic!("{other:?}"),
     }
 }
+
+#[tokio::test]
+async fn created_room_is_pushed_to_admins() {
+    let mut c = Ctx::new().await;
+    let t = c.t.clone();
+    let mut w = c.watch(&t).await;
+    let snap = snapshot(&mut w).await;
+    assert!(snap.rooms.is_empty());
+    let r = c.room("New room").await;
+    match next(&mut w, WAIT).await {
+        Some(Ok(watch_event::Event::Room(room))) => {
+            assert_eq!((room.id, room.name.as_str()), (r.id, "New room"))
+        }
+        other => panic!("expected the new room, got {other:?}"),
+    }
+}
