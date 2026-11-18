@@ -205,3 +205,20 @@ pub fn with_token(channel: Channel, token: &str) -> Result<Authed, ClientError> 
         .map_err(|_| ClientError::BadToken)?;
     Ok(InterceptedService::new(channel, TokenInterceptor { value }))
 }
+
+/// The user's config directory: `%APPDATA%` on Windows, `~/Library/Application
+/// Support` on macOS, `$XDG_CONFIG_HOME` or `~/.config` elsewhere.
+pub fn user_config_dir() -> Option<std::path::PathBuf> {
+    let env = |k: &str| {
+        std::env::var_os(k)
+            .filter(|v| !v.is_empty())
+            .map(std::path::PathBuf::from)
+    };
+    if cfg!(windows) {
+        env("APPDATA")
+    } else if cfg!(target_os = "macos") {
+        env("HOME").map(|h| h.join("Library").join("Application Support"))
+    } else {
+        env("XDG_CONFIG_HOME").or_else(|| env("HOME").map(|h| h.join(".config")))
+    }
+}

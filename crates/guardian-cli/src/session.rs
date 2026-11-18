@@ -17,26 +17,9 @@ pub struct Session {
     pub token: Option<String>,
 }
 
-/// The user's config directory: `%APPDATA%` on Windows, `~/Library/Application
-/// Support` on macOS, `$XDG_CONFIG_HOME` or `~/.config` elsewhere.
-fn config_dir() -> Option<PathBuf> {
-    let env = |k: &str| {
-        std::env::var_os(k)
-            .filter(|v| !v.is_empty())
-            .map(PathBuf::from)
-    };
-    if cfg!(windows) {
-        env("APPDATA")
-    } else if cfg!(target_os = "macos") {
-        env("HOME").map(|h| h.join("Library").join("Application Support"))
-    } else {
-        env("XDG_CONFIG_HOME").or_else(|| env("HOME").map(|h| h.join(".config")))
-    }
-}
-
 /// `<config dir>/guardian/cli.toml`.
 pub fn default_path() -> PathBuf {
-    config_dir()
+    guardian_client::user_config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("guardian")
         .join("cli.toml")

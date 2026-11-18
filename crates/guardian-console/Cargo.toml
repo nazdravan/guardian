@@ -15,6 +15,10 @@ path = "src/main.rs"
 testing = []
 
 [dependencies]
+guardian-client.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+toml.workspace = true
 egui.workspace = true
 eframe.workspace = true
 rfd.workspace = true
@@ -23,6 +27,7 @@ rfd.workspace = true
 winresource.workspace = true
 
 [dev-dependencies]
+tempfile.workspace = true
 egui_kittest.workspace = true
 
 [lints]

@@ -2005,7 +2005,12 @@ dependencies = [
  "eframe",
  "egui",
  "egui_kittest",
+ "guardian-client",
  "rfd",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.21",
+ "toml",
  "winresource",
 ]
 
