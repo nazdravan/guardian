@@ -292,6 +292,15 @@ async fn connection_loop(
                         Ok(AgentFrame { msg: Some(agent_frame::Msg::CommandResult(r)) }) => {
                             state.command_result_from_agent(id, r).await;
                         }
+                        Ok(AgentFrame { msg: Some(agent_frame::Msg::LocalAudit(a)) }) => {
+                            let up_to_seq = state.audit_local(id, &a.entries);
+                            let ack = frame(server_frame::Msg::LocalAuditAck(
+                                guardian_proto::v1::LocalAuditAck { up_to_seq },
+                            ));
+                            if send(sink, &ack).await.is_err() {
+                                return;
+                            }
+                        }
                         Ok(_) => tracing::debug!("computer {id}: ignoring unexpected frame"),
                         Err(e) => {
                             tracing::warn!("computer {id}: undecodable frame: {e}");

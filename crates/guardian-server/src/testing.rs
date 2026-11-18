@@ -25,6 +25,39 @@ pub fn req<T>(token: &str, msg: T) -> tonic::Request<T> {
     r
 }
 
+/// A [`TestServer`] that was stopped; [`StoppedServer::start`] brings it back on
+/// the same port with the same data.
+#[derive(Debug)]
+pub struct StoppedServer {
+    dir: tempfile::TempDir,
+    config: ServerConfig,
+}
+
+impl StoppedServer {
+    /// Starts it again on the same address. Retries the bind for 2 s.
+    #[allow(clippy::panic)]
+    pub async fn start(self) -> TestServer {
+        let StoppedServer { dir, config } = self;
+        let addr = config.listen;
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            match start(config.clone()).await {
+                Ok(handle) => {
+                    return TestServer {
+                        handle,
+                        dir,
+                        config,
+                    };
+                }
+                Err(_) if std::time::Instant::now() < deadline => {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+                Err(e) => panic!("restart on {addr}: {e}"),
+            }
+        }
+    }
+}
+
 /// An in-process server on `127.0.0.1:0` with shortened timeouts.
 #[derive(Debug)]
 pub struct TestServer {
@@ -85,33 +118,20 @@ impl TestServer {
 
     /// Stops the server and starts it again on the same data directory **and port**
     /// (for clients that must reconnect to the same address). Retries the bind for 2 s.
-    #[allow(clippy::panic)]
     pub async fn restart_same_port(self) -> TestServer {
+        self.stop().await.start().await
+    }
+
+    /// Stops the server, keeping its data directory, config and port.
+    pub async fn stop(self) -> StoppedServer {
         let TestServer {
             handle,
             dir,
             mut config,
         } = self;
-        let addr = handle.local_addr();
+        config.listen = handle.local_addr();
         handle.shutdown().await;
-        config.listen = addr;
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
-        loop {
-            match start(config.clone()).await {
-                Ok(handle) => {
-                    return TestServer {
-                        handle,
-                        dir,
-                        config,
-                    };
-                }
-                Err(e) if std::time::Instant::now() < deadline => {
-                    let _ = e;
-                    tokio::time::sleep(Duration::from_millis(50)).await;
-                }
-                Err(e) => panic!("restart on {addr}: {e}"),
-            }
-        }
+        StoppedServer { dir, config }
     }
 
     /// The config the server runs with.
@@ -518,6 +538,17 @@ impl SimAgent {
             .out
             .send(sim::Out::Frame(guardian_proto::v1::AgentFrame {
                 msg: Some(guardian_proto::v1::agent_frame::Msg::CommandResult(r)),
+            }));
+    }
+
+    /// Sends the local fallback journal.
+    pub async fn send_local_audit(&mut self, entries: Vec<guardian_proto::v1::LocalAuditEntry>) {
+        let _ = self
+            .out
+            .send(sim::Out::Frame(guardian_proto::v1::AgentFrame {
+                msg: Some(guardian_proto::v1::agent_frame::Msg::LocalAudit(
+                    guardian_proto::v1::LocalAudit { entries },
+                )),
             }));
     }
 

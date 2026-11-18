@@ -265,6 +265,38 @@ impl AppState {
         }
     }
 
+    /// Stores the journal an agent kept in local fallback mode (at most
+    /// [`MAX_LOCAL_AUDIT`] entries; texts cut to 200 characters). Returns the
+    /// highest `seq` stored.
+    pub fn audit_local(
+        &self,
+        computer_id: u64,
+        entries: &[guardian_proto::v1::LocalAuditEntry],
+    ) -> u64 {
+        if entries.len() > MAX_LOCAL_AUDIT {
+            tracing::warn!(
+                "computer {computer_id}: local journal of {} entries, keeping {MAX_LOCAL_AUDIT}",
+                entries.len()
+            );
+        }
+        let mut up_to = 0;
+        for e in entries.iter().take(MAX_LOCAL_AUDIT) {
+            let detail = format!("{} (console {}, {})", e.detail, e.console_id, e.login);
+            self.batcher.audit_at(
+                crate::batch::AuditEntry {
+                    actor_user_id: Some(e.user_id),
+                    action: cut(&e.action),
+                    target: format!("computer:{computer_id}"),
+                    detail: cut(&detail),
+                    source: crate::batch::AuditSource::Local,
+                },
+                e.at_unix,
+            );
+            up_to = up_to.max(e.seq);
+        }
+        up_to
+    }
+
     /// Queues an audit entry for an action through the server.
     pub fn audit(&self, actor: Option<i64>, action: &str, target: String, detail: String) {
         self.batcher.audit(crate::batch::AuditEntry {
@@ -275,4 +307,11 @@ impl AppState {
             source: crate::batch::AuditSource::Server,
         });
     }
+}
+
+/// Most entries taken from one `LocalAudit` frame.
+pub const MAX_LOCAL_AUDIT: usize = 1000;
+
+fn cut(s: &str) -> String {
+    s.chars().take(200).collect()
 }

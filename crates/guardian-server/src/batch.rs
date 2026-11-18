@@ -80,6 +80,11 @@ impl Batcher {
         });
     }
 
+    /// Queues an audit entry that happened at `at` (unix seconds).
+    pub fn audit_at(&self, entry: AuditEntry, at: i64) {
+        let _ = self.tx.send(Item::Audit(entry, at));
+    }
+
     /// Queues an audit entry (timestamped now).
     pub fn audit(&self, entry: AuditEntry) {
         let _ = self.tx.send(Item::Audit(entry, now_unix()));

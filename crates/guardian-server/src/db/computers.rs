@@ -59,8 +59,7 @@ impl ComputerRow {
             online,
             last_seen_unix: self.last_seen.unwrap_or(0),
             effective_profile_id: self.effective_profile(school_default),
-            // Filled in by stage 3b, Task 3.
-            public_key: Vec::new(),
+            public_key: self.public_key.clone(),
         }
     }
 }
