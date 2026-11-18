@@ -9,8 +9,11 @@ Install on a student computer (Windows 10 or 11, 32 or 64 bit):
    one) and the enrollment code from the console's "Connection info...", then
    click Install.
 
-From a script, in an administrator prompt:
-    guardian-setup.exe install --server wss://SERVER:8443 --code CODE [--cert-sha256 SHA256]
+From an administrator command prompt (cmd), in this folder:
+    start "" /wait guardian-setup.exe install --server wss://SERVER:8443 --code CODE [--cert-sha256 SHA256]
+"start /wait" makes cmd wait for the setup and keep its exit code (%ERRORLEVEL%);
+in PowerShell use: Start-Process -Wait .\guardian-setup.exe -ArgumentList 'install', ...
+Batch files wait without it.
 
 The agent goes to C:\Program Files\Guardian (service GuardianAgent), its data to
 C:\ProgramData\Guardian Agent. Guardian 2.x (ProcSentinelAgent) is found and,

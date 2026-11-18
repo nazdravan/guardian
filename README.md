@@ -62,7 +62,8 @@ Run `console-windows/guardian-console.exe`, connect, create rooms and profiles, 
 
 - **Windows:** unpack `agent-windows/` on the student computer and run `guardian-setup.exe` as administrator
   (fill in the server, the certificate SHA-256 and the code), or
-  `guardian-setup.exe install --server wss://SERVER:8443 --code CODE [--cert-sha256 SHA256]`.
+  `start "" /wait guardian-setup.exe install --server wss://SERVER:8443 --code CODE [--cert-sha256 SHA256]`
+  in an administrator `cmd` (`start /wait` makes the prompt wait for the setup and keep its exit code).
   It finds and, if you agree, removes Guardian 2.x.
 - **Linux:** `cd agent-linux && sudo ./install.sh wss://SERVER:8443 CODE [SHA256]`.
 

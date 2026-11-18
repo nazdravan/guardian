@@ -50,7 +50,7 @@ pub fn windows_command(t: &AgentTarget, code: &str) -> String {
         .map(|p| format!(" --cert-sha256 {p}"))
         .unwrap_or_default();
     format!(
-        "guardian-setup.exe install --server {}{pin} --code {code}",
+        "start \"\" /wait guardian-setup.exe install --server {}{pin} --code {code}",
         t.server
     )
 }

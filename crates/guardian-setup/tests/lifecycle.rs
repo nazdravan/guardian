@@ -307,3 +307,160 @@ fn host_failure_is_reported() {
         other => panic!("{other:?}"),
     }
 }
+
+// ---- final review (stage 3c) ----
+
+#[test]
+fn enroll_failure_without_message_shows_the_exit_code() {
+    let h = FakeHost::new();
+    h.fail_enroll(Some(""));
+    match install(&h, &args(), &quiet) {
+        Err(OpError::Enroll(m)) => assert!(m.contains("exit code 1"), "{m:?}"),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn enrollment_code_goes_to_the_agent_by_environment() {
+    let h = FakeHost::new();
+    install(&h, &args(), &quiet).unwrap();
+    let enroll = h
+        .calls()
+        .into_iter()
+        .find(|c| c.contains("enroll"))
+        .unwrap();
+    assert!(!enroll.contains("--code"), "{enroll}");
+    assert!(enroll.contains("env GUARDIAN_AGENT_CODE"), "{enroll}");
+    assert_eq!(h.last_enroll_code().as_deref(), Some("ABCD-EFGH"));
+}
+
+#[test]
+fn rollback_stops_a_restarted_agent_before_restoring() {
+    let h = FakeHost::new();
+    install(&h, &args(), &quiet).unwrap();
+    std::fs::write(h.io_path(&h.layout().agent_exe), "old agent").unwrap();
+    h.agent_wont_start_if(NEW_AGENT);
+    // The service manager restarts a failing agent by itself.
+    h.restarts_on_failure();
+    assert!(update(&h, &quiet).is_err());
+    assert_eq!(installed_agent(&h), "old agent");
+    let calls = h.calls();
+    let failed_start = calls
+        .iter()
+        .rposition(|c| c == "start_service GuardianAgent")
+        .unwrap();
+    let stop_before = calls[..failed_start]
+        .iter()
+        .rposition(|c| c == "stop_service GuardianAgent")
+        .unwrap();
+    let start_fail = calls
+        .iter()
+        .position(|c| c == "start_service GuardianAgent (failed)")
+        .unwrap();
+    assert!(start_fail < stop_before, "{calls:?}");
+    assert_eq!(h.service_state(SERVICE), Some(ServiceState::Running));
+}
+
+#[cfg(unix)]
+fn running_as_root() -> bool {
+    std::process::Command::new("id")
+        .arg("-u")
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "0")
+        .unwrap_or(false)
+}
+
+#[cfg(unix)]
+#[test]
+fn uninstall_retries_while_files_are_locked() {
+    use std::os::unix::fs::PermissionsExt;
+    if running_as_root() {
+        return; // root ignores the permission that stands in for a lock
+    }
+    let h = FakeHost::new();
+    install(&h, &args(), &quiet).unwrap();
+    let dir = h.io_path(&h.layout().program_dir);
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let unlock = dir.clone();
+    h.on_wait(Box::new(move || {
+        let _ = std::fs::set_permissions(&unlock, std::fs::Permissions::from_mode(0o755));
+    }));
+    uninstall(&h, false, &quiet).unwrap();
+    assert!(!dir.exists());
+}
+
+#[test]
+fn no_start_waits_for_the_service_before_stopping() {
+    let h = FakeHost::new();
+    h.starts_slowly();
+    let mut a = args();
+    a.no_start = true;
+    install(&h, &a, &quiet).unwrap();
+    assert_eq!(h.service_state(SERVICE), Some(ServiceState::Stopped));
+}
+
+#[test]
+fn install_waits_until_the_new_service_runs() {
+    let h = FakeHost::new();
+    h.starts_slowly();
+    install(&h, &args(), &quiet).unwrap();
+    assert_eq!(h.service_state(SERVICE), Some(ServiceState::Running));
+}
+
+#[test]
+fn failed_reenroll_restores_the_old_identity() {
+    let h = FakeHost::new();
+    let first = install(&h, &args(), &quiet).unwrap();
+    let data = h.io_path(&h.layout().data_dir);
+    std::fs::write(data.join("agent.key"), "old key").unwrap();
+    std::fs::write(data.join("state.pb"), "old state").unwrap();
+    h.fail_enroll(Some("invalid enrollment code"));
+    assert!(reenroll(&h, None, Secret::new("BAD"), None, &quiet).is_err());
+    assert_eq!(config(&h).computer_id, Some(first.computer_id));
+    assert_eq!(
+        std::fs::read_to_string(data.join("agent.key")).unwrap(),
+        "old key"
+    );
+    assert_eq!(
+        std::fs::read_to_string(data.join("state.pb")).unwrap(),
+        "old state"
+    );
+    assert_eq!(h.service_state(SERVICE), Some(ServiceState::Running));
+}
+
+#[cfg(unix)]
+#[test]
+fn status_without_admin_does_not_claim_unenrolled() {
+    use std::os::unix::fs::PermissionsExt;
+    if running_as_root() {
+        return;
+    }
+    let h = FakeHost::new();
+    install(&h, &args(), &quiet).unwrap();
+    let cfg = h.io_path(&h.layout().config);
+    std::fs::set_permissions(&cfg, std::fs::Permissions::from_mode(0o000)).unwrap();
+    h.not_elevated();
+    let s = status(&h);
+    std::fs::set_permissions(&cfg, std::fs::Permissions::from_mode(0o600)).unwrap();
+    assert!(
+        !s.problems.iter().any(|p| p.contains("not enrolled")),
+        "{:?}",
+        s.problems
+    );
+    assert!(s.needs_admin);
+}
+
+#[test]
+fn missing_binaries_do_not_remove_legacy() {
+    let h = FakeHost::new();
+    h.with_legacy();
+    h.without_bundle();
+    let mut a = args();
+    a.remove_legacy = true;
+    assert!(matches!(
+        install(&h, &a, &quiet),
+        Err(OpError::MissingBinaries(_))
+    ));
+    assert_eq!(h.service_state(LEGACY_SERVICE), Some(ServiceState::Running));
+    assert!(h.io_path(&h.layout().legacy_dir).exists());
+}

@@ -21,3 +21,23 @@ pub fn relaunch_args(exe: &Path) -> Vec<String> {
         format!("Start-Process -Verb RunAs -FilePath '{quoted}' -ArgumentList '{RELAUNCH_FLAG}'"),
     ]
 }
+
+/// What the non-elevated window does after asking for rights.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AfterRelaunch {
+    /// The elevated copy runs: this one ends.
+    Exit,
+    /// Rights were refused: open the read-only window.
+    Window,
+}
+
+/// `started`: the relaunch command's result (`Some(success)`), `None` when it
+/// could not run.
+/// (PowerShell's `Start-Process` fails, and PowerShell exits non-zero, when
+/// the UAC prompt is refused.)
+pub fn after_relaunch(started: Option<bool>) -> AfterRelaunch {
+    match started {
+        Some(true) => AfterRelaunch::Exit,
+        Some(false) | None => AfterRelaunch::Window,
+    }
+}

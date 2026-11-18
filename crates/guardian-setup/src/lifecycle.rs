@@ -98,6 +98,8 @@ pub struct Status {
     pub legacy_agent: bool,
     /// `guardian-agent --version`.
     pub agent_version: Option<String>,
+    /// Some files could not be read without administrator rights.
+    pub needs_admin: bool,
     /// What needs attention, in words.
     pub problems: Vec<String>,
 }
@@ -113,26 +115,84 @@ fn load_config(h: &dyn Host, l: &Layout) -> Option<AgentConfig> {
     AgentConfig::load(&h.io_path(&l.config)).ok()
 }
 
-fn remove_tree(p: &Path) -> Result<(), OpError> {
-    match std::fs::remove_dir_all(p) {
+/// Attempts for a file operation that may hit a file still in use.
+const FILE_ATTEMPTS: u32 = 20;
+/// Pause between them (10 s in all).
+const FILE_PAUSE: Duration = Duration::from_millis(500);
+
+/// A stopped service's process (and its worker) can hold its files a little
+/// longer: sharing violations and access denials are retried for a while.
+fn busy(e: &std::io::Error) -> bool {
+    e.kind() == std::io::ErrorKind::PermissionDenied || e.raw_os_error() == Some(32)
+}
+
+fn retrying<T>(h: &dyn Host, mut f: impl FnMut() -> std::io::Result<T>) -> std::io::Result<T> {
+    let mut attempt = 1;
+    loop {
+        match f() {
+            Err(e) if busy(&e) && attempt < FILE_ATTEMPTS => {
+                attempt += 1;
+                h.wait(FILE_PAUSE);
+            }
+            other => return other,
+        }
+    }
+}
+
+fn remove_tree(h: &dyn Host, p: &Path) -> Result<(), OpError> {
+    match retrying(h, || std::fs::remove_dir_all(p)) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(fs_err("cannot remove", p, e)),
     }
 }
 
-fn remove_file(p: &Path) -> Result<(), OpError> {
-    match std::fs::remove_file(p) {
+fn remove_file(h: &dyn Host, p: &Path) -> Result<(), OpError> {
+    match retrying(h, || std::fs::remove_file(p)) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(fs_err("cannot remove", p, e)),
     }
 }
 
-fn copy(from: &Path, to: &Path) -> Result<(), OpError> {
-    std::fs::copy(from, to)
+fn copy(h: &dyn Host, from: &Path, to: &Path) -> Result<(), OpError> {
+    retrying(h, || std::fs::copy(from, to))
         .map(|_| ())
         .map_err(|e| fs_err("cannot copy to", to, e))
+}
+
+fn rename(h: &dyn Host, from: &Path, to: &Path, what: &str) -> Result<(), OpError> {
+    retrying(h, || std::fs::rename(from, to)).map_err(|e| fs_err(what, from, e))
+}
+
+/// Waits until `name` runs (a fresh `service install` returns while it starts).
+fn wait_running(h: &dyn Host, name: &str) -> Result<(), OpError> {
+    let polls = SERVICE_TIMEOUT.as_millis() / FILE_PAUSE.as_millis();
+    for _ in 0..polls {
+        match h.service(name)? {
+            Some(ServiceState::Running) => return Ok(()),
+            Some(ServiceState::Starting) => h.wait(FILE_PAUSE),
+            _ => break,
+        }
+    }
+    Err(OpError::Host(HostError::Failed(format!(
+        "The {name} service did not start; see agent.log in the agent's data folder."
+    ))))
+}
+
+/// Registers the service through the installed agent and waits until it runs.
+fn register_service(h: &dyn Host, l: &Layout) -> Result<(), OpError> {
+    let out = h.run(
+        &h.io_path(&l.agent_exe),
+        &["service".to_string(), "install".to_string()],
+        &[],
+    )?;
+    if out.code != 0 {
+        return Err(OpError::Host(HostError::Failed(
+            out.stderr.trim().to_string(),
+        )));
+    }
+    wait_running(h, SERVICE)
 }
 
 /// The bundled agent and worker for this computer, checked to exist.
@@ -166,20 +226,31 @@ fn enroll(
         "enroll".to_string(),
         "--server".to_string(),
         server.to_string(),
-        "--code".to_string(),
-        code.expose().to_string(),
     ];
     if let Some(c) = cert {
         args.push("--cert-sha256".into());
         args.push(c.to_string());
     }
-    let out = h.run(&h.io_path(&l.agent_exe), &args)?;
+    // The code goes through the environment: a command line is visible to
+    // every user (Task Manager, process auditing).
+    let env = [("GUARDIAN_AGENT_CODE".to_string(), code.expose().to_string())];
+    let out = h.run(&h.io_path(&l.agent_exe), &args, &env)?;
     if out.code != 0 {
         let msg = out.stderr.trim();
-        let msg = msg.strip_prefix("error: ").unwrap_or(msg);
-        return Err(OpError::Enroll(
-            msg.replace(code.expose(), "***").trim().to_string(),
-        ));
+        let msg = msg.strip_prefix("error:").unwrap_or(msg).trim();
+        let msg = if code.expose().is_empty() {
+            msg.to_string()
+        } else {
+            msg.replace(code.expose(), "***")
+        };
+        return Err(OpError::Enroll(if msg.is_empty() {
+            format!(
+                "guardian-agent stopped with exit code {} and no message (a missing system library?)",
+                out.code
+            )
+        } else {
+            msg
+        }));
     }
     load_config(h, l)
         .and_then(|c| c.computer_id)
@@ -192,7 +263,7 @@ fn remove_legacy(h: &dyn Host, l: &Layout, progress: &dyn Fn(&str)) -> Result<()
         stop_if_running(h, LEGACY_SERVICE)?;
         h.delete_service(LEGACY_SERVICE)?;
     }
-    remove_tree(&h.io_path(&l.legacy_dir))
+    remove_tree(h, &h.io_path(&l.legacy_dir))
 }
 
 fn legacy_present(h: &dyn Host, l: &Layout) -> bool {
@@ -206,19 +277,20 @@ pub fn install(
     progress: &dyn Fn(&str),
 ) -> Result<Installed, OpError> {
     let l = need_admin(h)?;
+    // Nothing is removed before we know the new agent can be installed.
+    let (agent, worker) = bundle(h)?;
     if legacy_present(h, &l) {
         if !a.remove_legacy {
             return Err(OpError::LegacyAgent);
         }
         remove_legacy(h, &l, progress)?;
     }
-    let (agent, worker) = bundle(h)?;
     stop_if_running(h, SERVICE)?;
     progress(&format!("Copying the agent to {}…", l.program_dir));
     let dir = h.io_path(&l.program_dir);
     std::fs::create_dir_all(&dir).map_err(|e| fs_err("cannot create", &dir, e))?;
-    copy(&agent, &h.io_path(&l.agent_exe))?;
-    copy(&worker, &h.io_path(&l.worker_exe))?;
+    copy(h, &agent, &h.io_path(&l.agent_exe))?;
+    copy(h, &worker, &h.io_path(&l.worker_exe))?;
 
     let existing = load_config(h, &l).and_then(|c| c.computer_id);
     let (computer_id, enrolled_now) = match existing {
@@ -268,15 +340,7 @@ pub fn install(
     }
     if h.service(SERVICE)?.is_none() {
         progress("Registering the GuardianAgent service…");
-        let out = h.run(
-            &h.io_path(&l.agent_exe),
-            &["service".to_string(), "install".to_string()],
-        )?;
-        if out.code != 0 {
-            return Err(OpError::Host(HostError::Failed(
-                out.stderr.trim().to_string(),
-            )));
-        }
+        register_service(h, &l)?;
         if a.no_start {
             h.stop_service(SERVICE, SERVICE_TIMEOUT)?;
         }
@@ -290,6 +354,12 @@ pub fn install(
         enrolled_now,
         program_dir: l.program_dir,
     })
+}
+
+fn bak(p: &Path) -> PathBuf {
+    let mut s = p.as_os_str().to_owned();
+    s.push(".bak");
+    PathBuf::from(s)
 }
 
 fn old(p: &Path) -> PathBuf {
@@ -312,12 +382,12 @@ pub fn update(h: &dyn Host, progress: &dyn Fn(&str)) -> Result<(), OpError> {
     let pairs = [(agent, installed), (worker, h.io_path(&l.worker_exe))];
     for (_, to) in &pairs {
         let backup = old(to);
-        remove_file(&backup)?;
+        remove_file(h, &backup)?;
         if to.is_file() {
-            std::fs::rename(to, &backup).map_err(|e| fs_err("cannot move", to, e))?;
+            rename(h, to, &backup, "cannot move")?;
         }
     }
-    let copied = pairs.iter().try_for_each(|(from, to)| copy(from, to));
+    let copied = pairs.iter().try_for_each(|(from, to)| copy(h, from, to));
     let started = copied.and_then(|()| {
         progress("Starting the new agent…");
         h.start_service(SERVICE, SERVICE_TIMEOUT)
@@ -326,18 +396,31 @@ pub fn update(h: &dyn Host, progress: &dyn Fn(&str)) -> Result<(), OpError> {
     match started {
         Ok(()) => {
             for (_, to) in &pairs {
-                let _ = remove_file(&old(to));
+                let _ = remove_file(h, &old(to));
             }
             progress("Update completed.");
             Ok(())
         }
         Err(e) => {
             progress("The new agent did not start; restoring the previous one…");
+            // The service manager may have started the new agent again on its
+            // own (recovery actions): stop it before touching its files.
+            if let Err(stop) = stop_if_running(h, SERVICE) {
+                tracing::warn!("cannot stop the new agent before restoring: {stop}");
+            }
             for (_, to) in &pairs {
                 let backup = old(to);
                 if backup.is_file() {
-                    let _ = remove_file(to);
-                    std::fs::rename(&backup, to).map_err(|e| fs_err("cannot restore", to, e))?;
+                    remove_file(h, to).map_err(|r| {
+                        OpError::Host(HostError::Failed(format!(
+                            "The new agent did not start ({e}) and the previous one could not be put back ({r})."
+                        )))
+                    })?;
+                    rename(h, &backup, to, "cannot restore").map_err(|r| {
+                        OpError::Host(HostError::Failed(format!(
+                            "The new agent did not start ({e}) and the previous one could not be put back ({r})."
+                        )))
+                    })?;
                 }
             }
             h.start_service(SERVICE, SERVICE_TIMEOUT)?;
@@ -362,10 +445,10 @@ pub fn uninstall(h: &dyn Host, purge: bool, progress: &dyn Fn(&str)) -> Result<(
         h.delete_service(SERVICE)?;
     }
     h.delete_firewall_rule(FIREWALL_RULE)?;
-    remove_tree(&dir)?;
+    remove_tree(h, &dir)?;
     if purge {
         progress("Removing the agent's data…");
-        remove_tree(&h.io_path(&l.data_dir))?;
+        remove_tree(h, &h.io_path(&l.data_dir))?;
     }
     progress("Uninstall completed.");
     Ok(())
@@ -391,32 +474,61 @@ pub fn reenroll(
     let cert = cert.or_else(|| previous.as_ref().and_then(|c| c.cert_sha256.clone()));
     stop_if_running(h, SERVICE)?;
     let data = h.io_path(&l.data_dir);
-    for f in ["agent.key", "state.pb", "seen.txt", "local.pb"] {
-        remove_file(&data.join(f))?;
+    let config = h.io_path(&l.config);
+    // The old identity is kept aside until the new one exists, so a wrong
+    // code or an unreachable server leaves the computer as it was.
+    let mut kept = Vec::new();
+    for p in ["agent.key", "state.pb", "seen.txt", "local.pb"]
+        .iter()
+        .map(|f| data.join(f))
+        .chain(std::iter::once(config.clone()))
+    {
+        if p.is_file() {
+            let b = bak(&p);
+            remove_file(h, &b)?;
+            rename(h, &p, &b, "cannot set aside")?;
+            kept.push(p);
+        }
     }
+    let restore = |h: &dyn Host| {
+        let _ = remove_file(h, &config);
+        for p in &kept {
+            if let Err(e) = rename(h, &bak(p), p, "cannot restore") {
+                tracing::error!("{e}");
+            }
+        }
+        if h.service(SERVICE).ok().flatten().is_some()
+            && let Err(e) = h.start_service(SERVICE, SERVICE_TIMEOUT)
+        {
+            tracing::error!("cannot restart the agent with its old identity: {e}");
+        }
+    };
     let cleared = AgentConfig {
         server: server.clone(),
         cert_sha256: cert.clone(),
         computer_id: None,
         local_port: previous.and_then(|c| c.local_port),
     };
-    cleared
-        .save(&h.io_path(&l.config))
-        .map_err(|e| OpError::Host(HostError::Failed(e.to_string())))?;
+    if let Err(e) = cleared.save(&config) {
+        restore(h);
+        return Err(OpError::Host(HostError::Failed(e.to_string())));
+    }
     progress(&format!("Enrolling again with {server}…"));
-    let id = enroll(h, &l, &server, &code, cert.as_deref())?;
+    let id = match enroll(h, &l, &server, &code, cert.as_deref()) {
+        Ok(id) => id,
+        Err(e) => {
+            progress("Enrollment failed; the previous identity is back.");
+            restore(h);
+            return Err(e);
+        }
+    };
+    for p in &kept {
+        let _ = remove_file(h, &bak(p));
+    }
     if h.service(SERVICE)?.is_some() {
         h.start_service(SERVICE, SERVICE_TIMEOUT)?;
     } else {
-        let out = h.run(
-            &h.io_path(&l.agent_exe),
-            &["service".to_string(), "install".to_string()],
-        )?;
-        if out.code != 0 {
-            return Err(OpError::Host(HostError::Failed(
-                out.stderr.trim().to_string(),
-            )));
-        }
+        register_service(h, &l)?;
     }
     progress(&format!("Enrolled as computer {id}."));
     Ok(id)
@@ -431,6 +543,10 @@ pub fn whitelist_path(h: &dyn Host) -> PathBuf {
 pub fn read_whitelist(h: &dyn Host) -> (Whitelist, Vec<String>) {
     match std::fs::read_to_string(whitelist_path(h)) {
         Ok(t) => Whitelist::parse(&t),
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => (
+            Whitelist::default(),
+            vec!["Run as administrator to read the whitelist.".to_string()],
+        ),
         Err(_) => (Whitelist::default(), Vec::new()),
     }
 }
@@ -454,6 +570,12 @@ pub fn status(h: &dyn Host) -> Status {
     let service = h.service(SERVICE).ok().flatten();
     let installed = exe.is_file() && service.is_some();
     let config = load_config(h, &l);
+    // The config is in the admin-only data folder: without rights it exists
+    // but cannot be read, which is not the same as "not enrolled".
+    let needs_admin = config.is_none()
+        && std::fs::File::open(h.io_path(&l.config))
+            .err()
+            .is_some_and(|e| e.kind() == std::io::ErrorKind::PermissionDenied);
     let local_port = config
         .as_ref()
         .map(AgentConfig::local_port)
@@ -461,7 +583,7 @@ pub fn status(h: &dyn Host) -> Status {
     let firewall_rule = h.firewall_rule(FIREWALL_RULE).unwrap_or(false);
     let legacy_agent = legacy_present(h, &l);
     let agent_version = if exe.is_file() {
-        h.run(&exe, &["--version".to_string()])
+        h.run(&exe, &["--version".to_string()], &[])
             .ok()
             .filter(|o| o.code == 0)
             .map(|o| o.stdout.trim().to_string())
@@ -476,7 +598,7 @@ pub fn status(h: &dyn Host) -> Status {
         if service != Some(ServiceState::Running) {
             problems.push("The GuardianAgent service is not running.".to_string());
         }
-        if computer_id.is_none() {
+        if computer_id.is_none() && !needs_admin {
             problems.push("The agent is not enrolled.".to_string());
         }
         if local_port != 0 && !firewall_rule {
@@ -497,6 +619,7 @@ pub fn status(h: &dyn Host) -> Status {
         firewall_rule,
         legacy_agent,
         agent_version,
+        needs_admin,
         problems,
     }
 }

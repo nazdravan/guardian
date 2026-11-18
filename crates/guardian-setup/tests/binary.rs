@@ -38,3 +38,13 @@ fn relaunch_happens_once() {
         r"Start-Process -Verb RunAs -FilePath 'C:\Users\o''brien\Downloads\guardian-setup.exe' -ArgumentList '--elevated-relaunch'"
     );
 }
+
+#[test]
+fn refused_uac_opens_the_read_only_window() {
+    use guardian_setup::elevate::{AfterRelaunch, after_relaunch};
+    // The elevated copy started: this one exits.
+    assert_eq!(after_relaunch(Some(true)), AfterRelaunch::Exit);
+    // UAC refused (Start-Process failed) or powershell missing: stay, read only.
+    assert_eq!(after_relaunch(Some(false)), AfterRelaunch::Window);
+    assert_eq!(after_relaunch(None), AfterRelaunch::Window);
+}

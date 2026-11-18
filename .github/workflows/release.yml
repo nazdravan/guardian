@@ -26,7 +26,9 @@ env:
 
 jobs:
   linux:
-    runs-on: ubuntu-latest
+    # The oldest supported image: binaries built against an older glibc run on
+    # Ubuntu 22.04, Debian 12 and newer.
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

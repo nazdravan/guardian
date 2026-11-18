@@ -1,3 +1,7 @@
-# One self-contained 32-bit guardian-console.exe: no VC++ redistributable needed.
+# Self-contained Windows binaries (32 and 64 bit): no VC++ redistributable needed on
+# the student computers.
 [target.i686-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static"]

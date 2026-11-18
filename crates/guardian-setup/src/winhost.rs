@@ -72,7 +72,7 @@ impl WinHost {
     }
 
     fn netsh_run(&self, args: &[String]) -> Result<RunOutput, HostError> {
-        self.run(&self.netsh(), args)
+        self.run(&self.netsh(), args, &[])
     }
 
     fn wait_for(&self, name: &str, want: ServiceState, timeout: Duration) -> Result<(), HostError> {
@@ -163,9 +163,15 @@ impl Host for WinHost {
         svc.delete().map_err(win_err)
     }
 
-    fn run(&self, exe: &Path, args: &[String]) -> Result<RunOutput, HostError> {
+    fn run(
+        &self,
+        exe: &Path,
+        args: &[String],
+        env: &[(String, String)],
+    ) -> Result<RunOutput, HostError> {
         let out = Command::new(exe)
             .args(args)
+            .envs(env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
             .creation_flags(CREATE_NO_WINDOW)
             .output()
             .map_err(|e| HostError::Failed(format!("{}: {e}", exe.display())))?;

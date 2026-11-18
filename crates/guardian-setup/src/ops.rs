@@ -219,7 +219,11 @@ impl Output {
                     "installed: {}\nservice: {}\ncomputer: {}\nserver: {}\nlocal fallback port: {} ({})\nagent: {}\n",
                     if s.installed { "yes" } else { "no" },
                     s.service.map_or("not registered".to_string(), |st| format!("{st:?}").to_lowercase()),
-                    s.computer_id.map_or("not enrolled".to_string(), |id| id.to_string()),
+                    match s.computer_id {
+                        Some(id) => id.to_string(),
+                        None if s.needs_admin => "(run as administrator to see it)".to_string(),
+                        None => "not enrolled".to_string(),
+                    },
                     s.server.as_deref().unwrap_or("-"),
                     s.local_port,
                     if s.firewall_rule { "firewall rule present" } else { "no firewall rule" },

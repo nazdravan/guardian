@@ -58,6 +58,22 @@ rust = " ".join(str(s) for s in ((loaded.get("rust.yml") or {}).get("jobs") or {
 if "guardian-setup" not in rust:
     errors.append("rust.yml: the windows job does not test or build guardian-setup")
 
+linux_runner = (jobs.get("linux") or {}).get("runs-on")
+if linux_runner != "ubuntu-22.04":
+    errors.append(f"release.yml: build Linux binaries on ubuntu-22.04 (older glibc), not {linux_runner!r}")
+cargo_cfg = (ROOT / ".cargo" / "config.toml").read_text(encoding="utf-8")
+sections = {}
+current = None
+for line in cargo_cfg.splitlines():
+    if line.startswith("["):
+        current = line.strip()
+        sections[current] = ""
+    elif current:
+        sections[current] += line + "\n"
+for target in ("x86_64-pc-windows-msvc", "i686-pc-windows-msvc"):
+    if "crt-static" not in sections.get(f"[target.{target}]", ""):
+        errors.append(f".cargo/config.toml: {target} must link the C runtime statically (+crt-static)")
+
 for e in errors:
     print("FAIL:", e)
 if errors:

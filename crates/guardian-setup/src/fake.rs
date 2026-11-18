@@ -46,6 +46,10 @@ struct State {
     elevated: bool,
     processes: Vec<ProcessInfo>,
     next_id: u64,
+    last_code: Option<String>,
+    restarts_on_failure: bool,
+    slow_start: bool,
+    slow_polls: u32,
 }
 
 /// The fake host.
@@ -53,6 +57,7 @@ pub struct FakeHost {
     root: tempfile::TempDir,
     env: BTreeMap<String, String>,
     state: Mutex<State>,
+    on_wait: Mutex<Option<Box<dyn Fn() + Send>>>,
 }
 
 impl std::fmt::Debug for FakeHost {
@@ -98,6 +103,7 @@ impl FakeHost {
                 next_id: 41,
                 ..State::default()
             }),
+            on_wait: Mutex::new(None),
         };
         for arch in ["x64", "x86"] {
             let bin = h.setup_dir().join("bin").join(arch);
@@ -158,6 +164,28 @@ impl FakeHost {
         lock(&self.state).processes = p;
     }
 
+    /// The code the last `enroll` got (through `GUARDIAN_AGENT_CODE`).
+    pub fn last_enroll_code(&self) -> Option<String> {
+        lock(&self.state).last_code.clone()
+    }
+
+    /// Like the agent's recovery actions: a service whose start failed is
+    /// started again by the service manager (and runs).
+    pub fn restarts_on_failure(&self) {
+        lock(&self.state).restarts_on_failure = true;
+    }
+
+    /// The agent's `service install` leaves the service starting; it runs after
+    /// two more state queries, and a stop while it starts fails (Windows 1061).
+    pub fn starts_slowly(&self) {
+        lock(&self.state).slow_start = true;
+    }
+
+    /// Runs `f` on every `wait` (e.g. to release a "locked" file).
+    pub fn on_wait(&self, f: Box<dyn Fn() + Send>) {
+        *lock(&self.on_wait) = Some(f);
+    }
+
     /// Every host call so far, as `method arg…`.
     pub fn calls(&self) -> Vec<String> {
         lock(&self.state).calls.clone()
@@ -198,7 +226,7 @@ impl FakeHost {
             .cloned()
     }
 
-    fn agent(&self, args: &[String]) -> RunOutput {
+    fn agent(&self, args: &[String], env: &[(String, String)]) -> RunOutput {
         let ok = |out: &str| RunOutput {
             code: 0,
             stdout: out.to_string(),
@@ -213,6 +241,11 @@ impl FakeHost {
         match args.first().map(String::as_str) {
             Some("--version") => ok("guardian-agent 3.0.0\n"),
             Some("enroll") => {
+                lock(&self.state).last_code = env
+                    .iter()
+                    .find(|(k, _)| k == "GUARDIAN_AGENT_CODE")
+                    .map(|(_, v)| v.clone())
+                    .or_else(|| FakeHost::arg(args, "--code"));
                 if let Some(e) = lock(&self.state).enroll_error.clone() {
                     return fail(&format!("error: {e}"));
                 }
@@ -241,10 +274,13 @@ impl FakeHost {
                         return fail("not enrolled: run `guardian-agent enroll` first");
                     }
                     let bad = self.agent_is_bad();
+                    let slow = lock(&self.state).slow_start;
                     lock(&self.state).services.insert(
                         SERVICE.into(),
                         if bad {
                             ServiceState::Stopped
+                        } else if slow {
+                            ServiceState::Starting
                         } else {
                             ServiceState::Running
                         },
@@ -295,13 +331,25 @@ impl Host for FakeHost {
 
     fn service(&self, name: &str) -> Result<Option<ServiceState>, HostError> {
         self.failing(Method::Service)?;
-        Ok(lock(&self.state).services.get(name).copied())
+        let mut s = lock(&self.state);
+        if s.services.get(name) == Some(&ServiceState::Starting) {
+            s.slow_polls += 1;
+            if s.slow_polls >= 2 {
+                s.services.insert(name.into(), ServiceState::Running);
+            }
+        }
+        Ok(s.services.get(name).copied())
     }
 
     fn start_service(&self, name: &str, _timeout: Duration) -> Result<(), HostError> {
         self.record(format!("start_service {name}"));
         self.failing(Method::StartService)?;
         if name == SERVICE && self.agent_is_bad() {
+            self.record(format!("start_service {name} (failed)"));
+            let mut s = lock(&self.state);
+            if s.restarts_on_failure {
+                s.services.insert(name.into(), ServiceState::Running);
+            }
             return Err(HostError::Failed("the service did not start".into()));
         }
         let mut s = lock(&self.state);
@@ -319,6 +367,9 @@ impl Host for FakeHost {
         self.failing(Method::StopService)?;
         let mut s = lock(&self.state);
         match s.services.get_mut(name) {
+            Some(ServiceState::Starting) => Err(HostError::Failed(
+                "the service cannot accept control messages at this time (1061)".into(),
+            )),
             Some(st) => {
                 *st = ServiceState::Stopped;
                 Ok(())
@@ -334,7 +385,12 @@ impl Host for FakeHost {
         Ok(())
     }
 
-    fn run(&self, exe: &Path, args: &[String]) -> Result<RunOutput, HostError> {
+    fn run(
+        &self,
+        exe: &Path,
+        args: &[String],
+        env: &[(String, String)],
+    ) -> Result<RunOutput, HostError> {
         let name = exe
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
@@ -350,13 +406,18 @@ impl Host for FakeHost {
                 }
             })
             .collect();
-        self.record(format!("run {name} {}", shown.join(" ")));
+        let env_keys: Vec<String> = env.iter().map(|(k, _)| format!(" env {k}")).collect();
+        self.record(format!(
+            "run {name} {}{}",
+            shown.join(" "),
+            env_keys.concat()
+        ));
         self.failing(Method::Run)?;
         if !exe.is_file() {
             return Err(HostError::Failed(format!("{} not found", exe.display())));
         }
         if name == model::AGENT_EXE {
-            Ok(self.agent(args))
+            Ok(self.agent(args, env))
         } else {
             Err(HostError::Failed(format!("unknown program {name}")))
         }
@@ -392,5 +453,9 @@ impl Host for FakeHost {
         Ok(())
     }
 
-    fn wait(&self, _d: Duration) {}
+    fn wait(&self, _d: Duration) {
+        if let Some(f) = lock(&self.on_wait).as_ref() {
+            f();
+        }
+    }
 }

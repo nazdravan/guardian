@@ -11,7 +11,9 @@ use std::sync::Arc;
 
 use guardian_setup::app::SetupApp;
 use guardian_setup::cli::main_cli;
-use guardian_setup::elevate::{RELAUNCH_FLAG, relaunch_args, should_relaunch};
+use guardian_setup::elevate::{
+    AfterRelaunch, RELAUNCH_FLAG, after_relaunch, relaunch_args, should_relaunch,
+};
 use guardian_setup::host::Host;
 
 fn host() -> Arc<dyn Host> {
@@ -127,24 +129,28 @@ fn window(h: Arc<dyn Host>) -> ExitCode {
     }
 }
 
-fn relaunch_elevated(h: &dyn Host) -> bool {
-    let Ok(exe) = std::env::current_exe() else {
-        return false;
-    };
+/// `Some(success)` of the elevated relaunch, `None` when it could not run.
+fn relaunch_elevated(h: &dyn Host) -> Option<bool> {
+    let exe = std::env::current_exe().ok()?;
     let root = h.env("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
     let ps = PathBuf::from(root)
         .join("System32")
         .join("WindowsPowerShell")
         .join("v1.0")
         .join("powershell.exe");
-    match std::process::Command::new(ps)
-        .args(relaunch_args(&exe))
-        .status()
+    let mut cmd = std::process::Command::new(ps);
+    cmd.args(relaunch_args(&exe));
+    #[cfg(windows)]
     {
-        Ok(_) => true,
+        use std::os::windows::process::CommandExt;
+        // No console window flashing behind the UAC prompt.
+        cmd.creation_flags(0x0800_0000);
+    }
+    match cmd.status() {
+        Ok(s) => Some(s.success()),
         Err(e) => {
             tracing::warn!("cannot ask for administrator rights: {e}");
-            false
+            None
         }
     }
 }
@@ -162,8 +168,12 @@ fn main() -> ExitCode {
     if args.len() > 1 {
         return cli(&*h, args);
     }
-    if cfg!(windows) && should_relaunch(h.is_elevated(), &all) && relaunch_elevated(&*h) {
-        // The elevated copy (or a refused UAC prompt) takes it from here.
+    if cfg!(windows)
+        && should_relaunch(h.is_elevated(), &all)
+        && after_relaunch(relaunch_elevated(&*h)) == AfterRelaunch::Exit
+    {
+        // The elevated copy takes it from here; a refused prompt falls through
+        // to the read-only window.
         return ExitCode::SUCCESS;
     }
     window(h)

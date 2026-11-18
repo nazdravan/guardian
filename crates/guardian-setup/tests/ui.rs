@@ -80,7 +80,7 @@ fn install_sends_the_values() {
     assert!(
         f.calls()
             .iter()
-            .any(|c| c.contains("enroll --server wss://srv.school:8443 --code ***")),
+            .any(|c| c.contains("enroll --server wss://srv.school:8443 env GUARDIAN_AGENT_CODE")),
         "{:?}",
         f.calls()
     );

@@ -67,8 +67,14 @@ pub trait Host: Send + Sync {
     fn stop_service(&self, name: &str, timeout: Duration) -> Result<(), HostError>;
     /// Removes a (stopped) service.
     fn delete_service(&self, name: &str) -> Result<(), HostError>;
-    /// Runs a program and waits for it.
-    fn run(&self, exe: &Path, args: &[String]) -> Result<RunOutput, HostError>;
+    /// Runs a program and waits for it; `env` is added to its environment
+    /// (secrets go there, never on the command line).
+    fn run(
+        &self,
+        exe: &Path,
+        args: &[String],
+        env: &[(String, String)],
+    ) -> Result<RunOutput, HostError>;
     /// The running processes.
     fn processes(&self) -> Result<Vec<ProcessInfo>, HostError>;
     /// Where protected system programs live.
@@ -117,7 +123,12 @@ impl Host for UnsupportedHost {
     fn delete_service(&self, _name: &str) -> Result<(), HostError> {
         Err(unsupported())
     }
-    fn run(&self, _exe: &Path, _args: &[String]) -> Result<RunOutput, HostError> {
+    fn run(
+        &self,
+        _exe: &Path,
+        _args: &[String],
+        _env: &[(String, String)],
+    ) -> Result<RunOutput, HostError> {
         Err(unsupported())
     }
     fn processes(&self) -> Result<Vec<ProcessInfo>, HostError> {

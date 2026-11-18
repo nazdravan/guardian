@@ -50,14 +50,14 @@ fn windows_command_with_and_without_pin() {
     assert_eq!(
         windows_command(&t, "ABCD-1234"),
         format!(
-            "guardian-setup.exe install --server wss://srv:8443 --cert-sha256 {} --code ABCD-1234",
+            "start \"\" /wait guardian-setup.exe install --server wss://srv:8443 --cert-sha256 {} --code ABCD-1234",
             pin()
         )
     );
     t.cert_sha256 = None;
     assert_eq!(
         windows_command(&t, "C"),
-        "guardian-setup.exe install --server wss://srv:8443 --code C"
+        "start \"\" /wait guardian-setup.exe install --server wss://srv:8443 --code C"
     );
 }
 

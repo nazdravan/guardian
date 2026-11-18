@@ -41,16 +41,16 @@ The architecture comes from `PROCESSOR_ARCHITEW6432`, else `PROCESSOR_ARCHITECTU
 |---|---|---|
 | `status [--check]` | no | installed, service state, computer id, server, local fallback port and firewall rule, Guardian 2.x, agent version, problems |
 | `install --server wss://… (--code C \| --code-file F) [--cert-sha256 H] [--local-port N] [--remove-legacy] [--no-start]` | yes | see below |
-| `update` | yes | stops the service, replaces agent and worker with the bundled ones (old ones kept as `*.old`), starts it; if it does not start within 30 s the old binaries come back and are started |
+| `update` | yes | stops the service, replaces agent and worker with the bundled ones (old ones kept as `*.old`), starts it; if it does not start within 30 s the service is stopped again (its recovery actions may have restarted it) and the old binaries come back and are started |
 | `uninstall --yes [--purge]` | yes | removes the service, the firewall rule and `Program Files\Guardian`; `--purge` also the data (enrollment, key, whitelist) |
-| `reenroll (--code C \| --code-file F) [--server S] [--cert-sha256 H]` | yes | stops the service, deletes `agent.key`, the computer id, `state.pb`, `seen.txt`, `local.pb`, enrolls again, starts the service (§10.3) |
+| `reenroll (--code C \| --code-file F) [--server S] [--cert-sha256 H]` | yes | stops the service, sets `agent.key`, `agent.toml`, `state.pb`, `seen.txt`, `local.pb` aside (`*.bak`), enrolls again and starts the service (§10.3); if the enrollment fails the old identity is put back and the service restarted |
 | `whitelist list` / `add NAME` / `remove NAME` | add/remove | the local whitelist (the agent re-reads it at its next scan) |
 | `processes` | no | running program names |
 | `service start` / `stop` / `restart` | yes | the `GuardianAgent` service |
 | `logs [--lines N]`, `version` | no | CLI only |
 
 `install`, in order:
-1. administrator rights;
+1. administrator rights, and the bundled binaries for this architecture (nothing is removed before that);
 2. Guardian 2.x: refused with `--remove-legacy` missing; with it, its service is stopped and deleted and its folder removed;
 3. agent and worker copied for this architecture (the running service is stopped first);
 4. `guardian-agent enroll` only if `agent.toml` has no computer id (an existing enrollment is kept);
@@ -59,16 +59,27 @@ The architecture comes from `PROCESSOR_ARCHITEW6432`, else `PROCESSOR_ARCHITECTU
    and those the agent protects anyway (§8.3);
 7. the firewall rule `Guardian local fallback`: TCP and UDP on the local fallback port (default 11500),
    `remoteip=localsubnet`, any profile (§11.3); port `0` removes it;
-8. `guardian-agent service install` (which starts it), or a start when the service exists.
+8. `guardian-agent service install` (which starts it), then a wait until it runs (a start that never finishes is
+   an error), or a start when the service exists.
+
+Files of a just-stopped service can stay in use for a moment: copies, renames and deletions are retried for up to
+10 s on sharing violations and access denials.
 
 The enrollment code never appears in output, JSON, the log or `Debug` (`Secret`). `--code-file -` reads it from
-standard input so it does not show in the process list.
+standard input so it does not show in the process list, and the setup hands it to `guardian-agent enroll` in the
+`GUARDIAN_AGENT_CODE` environment variable, never on the agent's command line. When `guardian-agent` fails
+without a message (e.g. a missing system library), the error names its exit code.
 
 ## Command line
 
 Exit codes: `0` ok, `1` failed, `2` usage (including `uninstall` without `--yes`), `5` needs administrator
 rights (`Run this from an elevated prompt (Run as administrator).`), `10` `status --check` found a problem.
-`--json` prints `{"ok", "op", "result", "error"}`. A mutating operation takes `setup.lock`; a second one gets
+`--json` prints `{"ok", "op", "result", "error"}`. `status` without administrator rights cannot read
+`agent.toml`; it then sets `needs_admin` instead of reporting "not enrolled".
+
+`guardian-setup.exe` is a window program, so an interactive `cmd` does not wait for it: use
+`start "" /wait guardian-setup.exe …` (what the console's Connection info gives) to get its output before the
+next prompt and its exit code in `%ERRORLEVEL%`; PowerShell: `Start-Process -Wait`. Batch files wait anyway. A mutating operation takes `setup.lock`; a second one gets
 `Another Guardian Setup operation is in progress.` Progress goes to standard error, the result to standard
 output; started from Explorer with arguments (no console, nothing redirected), the result shows in a dialog.
 
