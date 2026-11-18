@@ -2005,13 +2005,18 @@ dependencies = [
  "eframe",
  "egui",
  "egui_kittest",
+ "futures-util",
  "guardian-client",
  "guardian-proto",
+ "guardian-server",
  "rfd",
  "serde",
  "tempfile",
  "thiserror 2.0.21",
+ "tokio",
  "toml",
+ "tonic",
+ "tracing",
  "winresource",
 ]
 
