@@ -50,14 +50,14 @@ fn windows_command_with_and_without_pin() {
     assert_eq!(
         windows_command(&t, "ABCD-1234"),
         format!(
-            "guardian-agent.exe enroll --server wss://srv:8443 --cert-sha256 {} --code ABCD-1234\nguardian-agent.exe service install",
+            "guardian-setup.exe install --server wss://srv:8443 --cert-sha256 {} --code ABCD-1234",
             pin()
         )
     );
     t.cert_sha256 = None;
     assert_eq!(
         windows_command(&t, "C"),
-        "guardian-agent.exe enroll --server wss://srv:8443 --code C\nguardian-agent.exe service install"
+        "guardian-setup.exe install --server wss://srv:8443 --code C"
     );
 }
 

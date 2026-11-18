@@ -96,7 +96,7 @@ impl<B: Backend> ConsoleApp<B> {
                 ));
                 let win = windows_command(&target, &code.code);
                 let lin = linux_command(&target, &code.code);
-                ui.strong("Windows (administrator prompt, in the agent's folder)");
+                ui.strong("Windows (run as administrator, from the unpacked agent-windows folder)");
                 ui.label(RichText::new(&win).monospace());
                 if ui.button("Copy Windows command").clicked() {
                     ui.ctx().copy_text(win.clone());

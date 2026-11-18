@@ -205,8 +205,11 @@ fn connection_info_shows_commands_after_new_code() {
         room_id: 10,
     }));
     h.run();
-    // Windows: enroll … --code; Linux: install.sh <server> <code>.
-    h.get_by_label_contains("enroll --server wss://srv.school:8443 --code ABCD-1234");
+    // Windows: guardian-setup.exe install …; Linux: install.sh <server> <code>.
+    h.get_by_label_contains(
+        "guardian-setup.exe install --server wss://srv.school:8443 --code ABCD-1234",
+    );
+    h.get_by_label("Windows (run as administrator, from the unpacked agent-windows folder)");
     h.get_by_label_contains("sudo ./install.sh wss://srv.school:8443 ABCD-1234");
 }
 

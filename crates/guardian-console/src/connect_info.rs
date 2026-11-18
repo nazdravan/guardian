@@ -42,7 +42,7 @@ pub fn agent_target(mode: &Mode, hostname: &str, port_override: Option<u16>) -> 
     }
 }
 
-/// The two commands for an elevated prompt on a Windows student computer.
+/// The command for an elevated prompt on a Windows student computer (`guardian-setup.exe`).
 pub fn windows_command(t: &AgentTarget, code: &str) -> String {
     let pin = t
         .cert_sha256
@@ -50,7 +50,7 @@ pub fn windows_command(t: &AgentTarget, code: &str) -> String {
         .map(|p| format!(" --cert-sha256 {p}"))
         .unwrap_or_default();
     format!(
-        "guardian-agent.exe enroll --server {}{pin} --code {code}\nguardian-agent.exe service install",
+        "guardian-setup.exe install --server {}{pin} --code {code}",
         t.server
     )
 }
