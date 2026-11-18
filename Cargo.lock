@@ -2002,6 +2002,7 @@ dependencies = [
 name = "guardian-console"
 version = "3.0.0-dev"
 dependencies = [
+ "clap",
  "eframe",
  "egui",
  "egui_kittest",
@@ -2020,6 +2021,7 @@ dependencies = [
  "toml",
  "tonic",
  "tracing",
+ "tracing-subscriber",
  "winresource",
 ]
 
