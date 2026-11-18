@@ -50,7 +50,8 @@ fn matches(list: &BTreeSet<AppName>, name: &str, stem: Option<&str>) -> bool {
 ///
 /// A protected system name protects a process only if its executable is under
 /// `trusted` (or, on Windows, cannot be read at all — pseudo-processes and protected
-/// processes). Linux kernel threads (no executable) are never killed. In whitelist
+/// processes). A process without a readable executable is protected only by
+/// name (the Linux platform never reports kernel threads). In whitelist
 /// mode the computer's `local_whitelist` counts as allowed too.
 pub fn decide(
     os: Os,
@@ -63,8 +64,7 @@ pub fn decide(
     let stem = name.strip_suffix(".exe");
     let protected_name = is_protected(os, &name) || stem.is_some_and(|s| is_protected(os, s));
     let protected = match (&p.exe_path, os) {
-        (None, Os::Linux) => true,
-        (None, Os::Windows) => protected_name,
+        (None, _) => protected_name,
         (Some(path), _) => protected_name && trusted.contains(os, path),
     };
     if protected {
@@ -197,20 +197,23 @@ mod tests {
     }
 
     #[test]
-    fn linux_kernel_threads_are_never_killed() {
-        let k = ProcessInfo {
-            pid: 2,
-            name: "kthreadd".into(),
+    fn linux_process_without_readable_exe_is_judged_by_name() {
+        // The platform drops kernel threads; a user process whose exe cannot be
+        // read must not become exempt (an agent without CAP_SYS_PTRACE would
+        // otherwise kill nothing in Exam).
+        let p = |name: &str| ProcessInfo {
+            pid: 4242,
+            name: name.into(),
             exe_path: None,
             start_marker: 0,
         };
+        let exam = prof(Mode::Whitelist, &[]);
         assert_eq!(
-            dec(
-                Os::Linux,
-                &prof(Mode::Whitelist, &[]),
-                &Default::default(),
-                &k
-            ),
+            dec(Os::Linux, &exam, &Default::default(), &p("game")),
+            Verdict::Kill
+        );
+        assert_eq!(
+            dec(Os::Linux, &exam, &Default::default(), &p("systemd")),
             Verdict::Allow
         );
     }
