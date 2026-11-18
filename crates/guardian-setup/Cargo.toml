@@ -1,0 +1,29 @@
+[package]
+name = "guardian-setup"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Guardian 3.0 agent installer and diagnostics for Windows"
+
+[features]
+# FakeHost for tests.
+testing = ["dep:tempfile"]
+
+[dependencies]
+guardian-core.workspace = true
+guardian-agent.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tempfile = { workspace = true, optional = true }
+
+[target.'cfg(windows)'.build-dependencies]
+winresource.workspace = true
+
+[dev-dependencies]
+guardian-setup = { path = ".", features = ["testing"] }
+serde_json.workspace = true
+
+[lints]
+workspace = true

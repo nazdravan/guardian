@@ -2252,6 +2252,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "guardian-setup"
+version = "3.0.0-dev"
+dependencies = [
+ "guardian-agent",
+ "guardian-core",
+ "guardian-setup",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "winresource",
+]
+
+[[package]]
 name = "guardian-worker"
 version = "3.0.0-dev"
 dependencies = [
