@@ -11,3 +11,5 @@ pub mod host;
 pub mod lifecycle;
 pub mod model;
 pub mod ops;
+#[cfg(windows)]
+pub mod winhost;

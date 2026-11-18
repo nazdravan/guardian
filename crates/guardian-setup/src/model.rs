@@ -154,6 +154,27 @@ pub fn bundled_bins(setup_dir: &Path, arch: Arch) -> (PathBuf, PathBuf) {
     (bin.join(AGENT_EXE), bin.join(WORKER_EXE))
 }
 
+/// `canonical` as this process must open it: a 32-bit process on 64-bit
+/// Windows (`wow64`) sees `System32` redirected to `SysWOW64`, so paths under
+/// `<SystemRoot>\System32` go through `Sysnative` instead.
+pub fn sysnative(canonical: &WinPath, system_root: &WinPath, wow64: bool) -> WinPath {
+    if !wow64 {
+        return canonical.clone();
+    }
+    let prefix = system_root.join("System32");
+    let c = canonical.as_str();
+    let p = prefix.as_str();
+    let matches = c.len() >= p.len()
+        && c.get(..p.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(p))
+        && (c.len() == p.len() || c.as_bytes().get(p.len()) == Some(&b'\\'));
+    if !matches {
+        return canonical.clone();
+    }
+    let rest = c.get(p.len()..).unwrap_or_default();
+    WinPath::new(&format!("{}{rest}", system_root.join("Sysnative")))
+}
+
 /// `netsh` arguments that add the local fallback rule for one protocol.
 pub fn firewall_args(name: &str, port: u16, proto: &str) -> Vec<String> {
     vec![

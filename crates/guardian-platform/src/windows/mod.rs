@@ -9,13 +9,17 @@ use guardian_proto::v1::SystemInfo;
 use crate::{Platform, PlatformError, ProcessEventSource, UserSession};
 
 mod events;
+mod ffi_console;
 mod ffi_pipe;
 mod ffi_procs;
 mod ffi_session;
+mod ffi_token;
 mod procs;
 mod session;
 
+pub use ffi_console::attach_parent_console;
 pub(crate) use ffi_pipe::{client_pid as pipe_client_pid, create_server as create_pipe_server};
+pub use ffi_token::is_elevated;
 
 /// The Windows platform.
 #[derive(Debug, Default, Clone, Copy)]

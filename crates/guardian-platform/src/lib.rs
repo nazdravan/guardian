@@ -24,6 +24,12 @@ mod windows;
 #[cfg(windows)]
 pub use windows::trusted_roots_from;
 
+/// Windows helpers for the setup: elevation and the parent console.
+#[cfg(windows)]
+pub mod windows_util {
+    pub use crate::windows::{attach_parent_console, is_elevated};
+}
+
 /// A platform operation failed.
 #[derive(Debug, thiserror::Error)]
 pub enum PlatformError {

@@ -209,3 +209,47 @@ fn secret_never_prints() {
     assert_eq!(serde_json::to_string(&s).unwrap(), "\"***\"");
     assert_eq!(s.expose(), "ABCD-EFGH");
 }
+
+#[test]
+fn netsh_args_for_tcp_and_udp() {
+    use guardian_setup::model::firewall_args;
+    let tcp = firewall_args("Guardian local fallback", 11500, "TCP");
+    assert_eq!(
+        tcp,
+        vec![
+            "advfirewall",
+            "firewall",
+            "add",
+            "rule",
+            "name=Guardian local fallback",
+            "dir=in",
+            "action=allow",
+            "protocol=TCP",
+            "localport=11500",
+            "remoteip=localsubnet",
+            "profile=any"
+        ]
+    );
+    assert!(firewall_args("x", 1, "UDP").contains(&"protocol=UDP".to_string()));
+}
+
+#[test]
+fn io_path_maps_system32_only_under_wow64() {
+    use guardian_setup::model::{WinPath, sysnative};
+    let root = WinPath::new(r"C:\Windows");
+    let legacy = WinPath::new(r"C:\Windows\System32\ProcSentinel\agent");
+    assert_eq!(
+        sysnative(&legacy, &root, true).as_str(),
+        r"C:\Windows\Sysnative\ProcSentinel\agent"
+    );
+    assert_eq!(sysnative(&legacy, &root, false), legacy);
+    let lower = WinPath::new(r"c:\windows\system32\x");
+    assert_eq!(
+        sysnative(&lower, &root, true).as_str(),
+        r"C:\Windows\Sysnative\x"
+    );
+    let other = WinPath::new(r"C:\Program Files\Guardian");
+    assert_eq!(sysnative(&other, &root, true), other);
+    let prefix_only = WinPath::new(r"C:\Windows\System32x\y");
+    assert_eq!(sysnative(&prefix_only, &root, true), prefix_only);
+}

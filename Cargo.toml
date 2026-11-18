@@ -76,7 +76,7 @@ if-addrs = "0.15"
 nix = { version = "0.32", features = ["signal", "socket", "uio", "user", "process"] }
 ferrisetw = "1.2"
 netlink-sys = { version = "0.8", default-features = false }
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading", "Win32_System_ProcessStatus", "Win32_System_RemoteDesktop", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Environment", "Win32_System_Pipes", "Win32_System_IO"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading", "Win32_System_ProcessStatus", "Win32_System_RemoteDesktop", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Environment", "Win32_System_Pipes", "Win32_System_IO", "Win32_System_Console"] }
 egui = "0.37"
 eframe = { version = "0.37", default-features = false, features = ["default_fonts", "accesskit", "wgpu", "glow", "x11", "wayland"] }
 egui_kittest = "0.37"
