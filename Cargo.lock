@@ -2255,6 +2255,7 @@ dependencies = [
 name = "guardian-setup"
 version = "3.0.0-dev"
 dependencies = [
+ "clap",
  "guardian-agent",
  "guardian-core",
  "guardian-setup",
@@ -2262,6 +2263,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+ "tracing",
  "winresource",
 ]
 

@@ -4,8 +4,10 @@
 
 #![forbid(unsafe_code)]
 
+pub mod cli;
 #[cfg(feature = "testing")]
 pub mod fake;
 pub mod host;
 pub mod lifecycle;
 pub mod model;
+pub mod ops;
