@@ -1,7 +1,13 @@
 //! The egui shell. It draws only from backend [`Event`]s and sends only
 //! [`Action`]s; no business logic lives here.
 
+mod admin_computers;
+mod admin_profiles;
+mod admin_rooms;
+mod admin_settings;
+mod admin_users;
 mod confirm;
+mod connect_window;
 mod login;
 mod rooms;
 mod setup;
@@ -10,7 +16,7 @@ mod status;
 use std::time::{Duration, Instant};
 
 use egui::RichText;
-use guardian_proto::v1::{Role, User};
+use guardian_proto::v1::{EnrollCode, Profile, Role, Settings, User};
 
 use crate::backend::{Action, Backend, ConnState, Event};
 use crate::connect_info;
@@ -45,6 +51,97 @@ const ADMIN_TABS: [(Tab, &str); 5] = [
     (Tab::Settings, "Settings"),
 ];
 
+/// A destructive admin action waiting for "Yes".
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Confirm {
+    DeleteRoom(i64, String),
+    DeleteProfile(i64, String),
+    Revoke(u64, String),
+    DisableUser(i64, String),
+    ChangeMode,
+}
+
+impl Confirm {
+    fn question(&self) -> String {
+        match self {
+            Confirm::DeleteRoom(_, n) => format!("Delete {n}? Computers in it move to no room."),
+            Confirm::DeleteProfile(_, n) => {
+                format!("Delete the profile {n}? Rooms using it must be switched first.")
+            }
+            Confirm::Revoke(_, n) => {
+                format!("Revoke {n}? It must be enrolled again with a new code.")
+            }
+            Confirm::DisableUser(_, n) => format!("Disable {n}? Their sessions end now."),
+            Confirm::ChangeMode => "Change how this console connects? The embedded server \
+                                    stops and you will need to sign in again."
+                .into(),
+        }
+    }
+}
+
+/// State of the admin tabs.
+#[derive(Debug)]
+struct Admin {
+    profiles: Vec<Profile>,
+    users: Vec<User>,
+    school: Option<Settings>,
+    retention: String,
+    code: Option<EnrollCode>,
+    code_room: Option<i64>,
+    new_room: String,
+    rename_room: Option<(i64, String)>,
+    edit: Option<Profile>,
+    new_app: String,
+    rename_pc: Option<(u64, String)>,
+    new_login: String,
+    new_password: String,
+    new_role: Role,
+    reset_pw: Option<(i64, String, String)>,
+    confirm: Option<Confirm>,
+}
+
+impl Default for Admin {
+    fn default() -> Self {
+        Admin {
+            profiles: Vec::new(),
+            users: Vec::new(),
+            school: None,
+            retention: String::new(),
+            code: None,
+            code_room: None,
+            new_room: String::new(),
+            rename_room: None,
+            edit: None,
+            new_app: String::new(),
+            rename_pc: None,
+            new_login: String::new(),
+            new_password: String::new(),
+            new_role: Role::Teacher,
+            reset_pw: None,
+            confirm: None,
+        }
+    }
+}
+
+/// A button whose accessible name says which row it acts on.
+fn row_button(ui: &mut egui::Ui, text: &str, a11y: &str) -> egui::Response {
+    let r = ui.button(text);
+    let name = a11y.to_string();
+    r.widget_info(move || egui::WidgetInfo::labeled(egui::Role::Button, true, &name));
+    r
+}
+
+/// A single-line field with a visible label.
+fn field(ui: &mut egui::Ui, label: &str, value: &mut String, password: bool) -> egui::Response {
+    let l = ui.label(label);
+    ui.add(
+        egui::TextEdit::singleline(value)
+            .password(password)
+            .desired_width(240.0),
+    )
+    .labelled_by(l.id)
+}
+
 #[derive(Debug, Default)]
 struct PasswordForm {
     open: bool,
@@ -72,6 +169,7 @@ pub struct ConsoleApp<B: Backend> {
     pending_profile: Option<ProfileChoice>,
     password: PasswordForm,
     tab: Tab,
+    admin: Admin,
     /// The Connection info window is open.
     pub connect_open: bool,
 }
@@ -121,6 +219,7 @@ impl<B: Backend> ConsoleApp<B> {
             pending_profile: None,
             password: PasswordForm::default(),
             tab: Tab::Overview,
+            admin: Admin::default(),
             connect_open: false,
         }
     }
@@ -175,7 +274,24 @@ impl<B: Backend> ConsoleApp<B> {
                 self.done = Some((m, Instant::now()));
             }
             Event::Error(m) => self.error = Some(m),
-            Event::Profiles(_) | Event::Users(_) | Event::Settings(_) | Event::Code(_) => {}
+            Event::Profiles(ps) => {
+                if let Some(e) = &self.admin.edit {
+                    let found = ps
+                        .iter()
+                        .find(|p| (e.id != 0 && p.id == e.id) || (e.id == 0 && p.name == e.name))
+                        .cloned();
+                    if found.is_some() {
+                        self.admin.edit = found;
+                    }
+                }
+                self.admin.profiles = ps;
+            }
+            Event::Users(us) => self.admin.users = us,
+            Event::Settings(st) => {
+                self.admin.retention = st.retention_days.to_string();
+                self.admin.school = Some(st);
+            }
+            Event::Code(c) => self.admin.code = Some(c),
         }
     }
 
@@ -357,8 +473,14 @@ impl<B: Backend> ConsoleApp<B> {
                         self.tab = Tab::Overview;
                     }
                     for (tab, name) in ADMIN_TABS {
-                        if ui.selectable_label(self.tab == tab, name).clicked() {
+                        if ui.selectable_label(self.tab == tab, name).clicked() && self.tab != tab {
                             self.tab = tab;
+                            match tab {
+                                Tab::Profiles => self.backend.send(Action::LoadProfiles),
+                                Tab::Users => self.backend.send(Action::LoadUsers),
+                                Tab::Settings => self.backend.send(Action::LoadSettings),
+                                _ => {}
+                            }
                         }
                     }
                 });
@@ -381,12 +503,69 @@ impl<B: Backend> ConsoleApp<B> {
             });
         });
         self.profile_confirmation(ui);
+        self.admin_confirmation(ui);
         self.password_window(ui);
+        self.connect_window(ui);
+        self.rename_windows(ui);
     }
 
-    /// Placeholder until the admin tabs are drawn.
-    fn admin_tab(&mut self, ui: &mut egui::Ui, _tab: Tab) {
-        ui.label("…");
+    fn admin_tab(&mut self, ui: &mut egui::Ui, tab: Tab) {
+        match tab {
+            Tab::Overview => {}
+            Tab::Rooms => self.rooms_tab(ui),
+            Tab::Profiles => self.profiles_tab(ui),
+            Tab::Computers => self.computers_tab(ui),
+            Tab::Users => self.users_tab(ui),
+            Tab::Settings => self.settings_tab(ui),
+        }
+    }
+
+    /// Profiles known to the admin tabs (the fleet's until loaded).
+    fn known_profiles(&self) -> Vec<Profile> {
+        if self.admin.profiles.is_empty() {
+            self.fleet.profiles().into_iter().cloned().collect()
+        } else {
+            let mut v = self.admin.profiles.clone();
+            v.sort_by_key(|p| p.name.to_lowercase());
+            v
+        }
+    }
+
+    fn admin_confirmation(&mut self, ui: &mut egui::Ui) {
+        let Some(c) = self.admin.confirm.clone() else {
+            return;
+        };
+        match confirm::ask(ui, "admin-confirm", &c.question()) {
+            Some(true) => {
+                self.admin.confirm = None;
+                match c {
+                    Confirm::DeleteRoom(id, _) => self.backend.send(Action::DeleteRoom { id }),
+                    Confirm::DeleteProfile(id, _) => {
+                        self.admin.edit = None;
+                        self.backend.send(Action::DeleteProfile { id });
+                    }
+                    Confirm::Revoke(id, _) => self.backend.send(Action::RevokeComputer { id }),
+                    Confirm::DisableUser(id, _) => self.backend.send(Action::UpdateUser {
+                        id,
+                        role: None,
+                        active: Some(false),
+                        new_password: None,
+                    }),
+                    Confirm::ChangeMode => {
+                        self.backend.send(Action::ForgetMode);
+                        self.mode = None;
+                        self.user = None;
+                        self.fleet = Fleet::default();
+                        self.embedded = EmbeddedState::Stopped;
+                        self.conn = ConnState::Disconnected;
+                        self.tab = Tab::Overview;
+                        self.setup = setup::Setup::default();
+                    }
+                }
+            }
+            Some(false) => self.admin.confirm = None,
+            None => {}
+        }
     }
 
     /// Draws one frame.

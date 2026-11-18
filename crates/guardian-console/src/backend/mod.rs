@@ -63,6 +63,9 @@ pub enum Action {
     StopEmbedded,
     /// Add the firewall rule for the embedded server (Windows).
     OpenFirewall,
+    /// Forget the mode and the session (back to the first-run choice); stops
+    /// the embedded server.
+    ForgetMode,
     /// Switch a room's active profile.
     SetRoomProfile {
         /// Room.
@@ -306,6 +309,16 @@ impl Core {
         }
     }
 
+    pub(crate) fn forget_mode(&self) {
+        *lock(&self.channel) = None;
+        let mut s = lock(&self.settings);
+        s.mode = None;
+        s.set_token(None);
+        let copy = s.clone();
+        drop(s);
+        self.save_settings(&copy);
+    }
+
     pub(crate) fn set_channel(&self, c: Channel) {
         *lock(&self.channel) = Some(c);
     }
@@ -396,6 +409,13 @@ async fn handle(core: Arc<Core>, a: Action) {
             stop_embedded(&core).await;
         }
         Action::OpenFirewall => open_firewall(core).await,
+        Action::ForgetMode => {
+            core.abort_session();
+            stop_embedded(&core).await;
+            core.forget_mode();
+            core.reset_fleet();
+            core.emit(Event::Connection(ConnState::Disconnected));
+        }
         Action::Shutdown => {}
         other => actions::run(core, other).await,
     }
