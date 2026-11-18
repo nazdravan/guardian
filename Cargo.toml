@@ -26,6 +26,7 @@ guardian-agent = { path = "crates/guardian-agent" }
 guardian-worker = { path = "crates/guardian-worker" }
 guardian-console = { path = "crates/guardian-console" }
 guardian-local = { path = "crates/guardian-local" }
+guardian-applog = { path = "crates/guardian-applog" }
 
 tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal", "fs", "io-util"] }
 tokio-stream = { version = "0.1", features = ["sync", "net"] }

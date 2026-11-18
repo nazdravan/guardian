@@ -2082,6 +2082,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "guardian-applog"
+version = "3.0.0-dev"
+dependencies = [
+ "tempfile",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "guardian-cli"
 version = "3.0.0-dev"
 dependencies = [
@@ -2133,6 +2142,7 @@ dependencies = [
  "futures-util",
  "gethostname",
  "guardian-agent",
+ "guardian-applog",
  "guardian-client",
  "guardian-console",
  "guardian-core",
@@ -2151,7 +2161,6 @@ dependencies = [
  "toml",
  "tonic",
  "tracing",
- "tracing-subscriber",
  "winresource",
 ]
 

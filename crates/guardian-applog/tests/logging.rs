@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use guardian_console::logging::rotate;
+use guardian_applog::rotate;
 
 const MIB: u64 = 1024 * 1024;
 

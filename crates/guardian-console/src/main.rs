@@ -7,11 +7,11 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::Parser;
+use guardian_console::VERSION;
 use guardian_console::backend::{Action, Backend, RealBackend};
 use guardian_console::instance::{InstanceError, InstanceLock};
 use guardian_console::settings::{self, ConsoleSettings, Mode};
 use guardian_console::ui::ConsoleApp;
-use guardian_console::{VERSION, logging};
 
 /// Guardian Console: rooms, profiles and computers of a Guardian server.
 #[derive(Debug, Parser)]
@@ -101,8 +101,8 @@ fn main() -> ExitCode {
         }
     };
     let log = settings::log_path();
-    logging::init_logging(&log);
-    logging::log_panics();
+    guardian_applog::init_logging(&log);
+    guardian_applog::log_panics();
     tracing::info!("guardian-console {VERSION} starting");
     let settings = match ConsoleSettings::load(&settings_path) {
         Ok(s) => s,

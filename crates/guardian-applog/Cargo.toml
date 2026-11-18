@@ -1,0 +1,17 @@
+[package]
+name = "guardian-applog"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Log file rotation and the panic hook of the Guardian desktop programs"
+
+[dependencies]
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

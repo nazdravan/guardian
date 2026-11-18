@@ -1,5 +1,7 @@
-//! `console.log`: rotated at start (at most two old files), no secrets (tokens
-//! and passwords are `Secret`, whose `Debug` is `***`).
+//! Log files of the Guardian desktop programs (console, setup): rotated at
+//! start (at most two old files), plus a panic hook that writes to the log.
+
+#![forbid(unsafe_code)]
 
 use std::path::{Path, PathBuf};
 

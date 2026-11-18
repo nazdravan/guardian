@@ -17,6 +17,5 @@ pub mod instance;
 pub mod settings;
 pub mod ui;
 
-pub mod logging;
 #[cfg(feature = "testing")]
 pub mod testing;
