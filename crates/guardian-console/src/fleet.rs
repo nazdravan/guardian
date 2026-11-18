@@ -11,6 +11,7 @@ pub struct Fleet {
     rooms: BTreeMap<i64, Room>,
     computers: BTreeMap<u64, Computer>,
     profiles: BTreeMap<i64, Profile>,
+    notes: BTreeMap<u64, String>,
 }
 
 /// A room as shown.
@@ -86,6 +87,21 @@ pub fn connection_text(online: bool, last_seen_unix: i64, now_unix: i64) -> Stri
 }
 
 impl Fleet {
+    /// A fleet built from parts (fallback mode builds it from its cache).
+    pub fn from_parts(rooms: Vec<Room>, computers: Vec<Computer>, profiles: Vec<Profile>) -> Fleet {
+        Fleet {
+            rooms: rooms.into_iter().map(|r| (r.id, r)).collect(),
+            computers: computers.into_iter().map(|c| (c.id, c)).collect(),
+            profiles: profiles.into_iter().map(|p| (p.id, p)).collect(),
+            notes: BTreeMap::new(),
+        }
+    }
+
+    /// Per-computer texts that replace the connection text.
+    pub fn set_notes(&mut self, notes: BTreeMap<u64, String>) {
+        self.notes = notes;
+    }
+
     /// Applies one `Watch` event. A snapshot replaces everything.
     pub fn apply(&mut self, ev: WatchEvent) {
         match ev.event {
@@ -150,7 +166,11 @@ impl Fleet {
                 c.name.clone()
             },
             online: c.online,
-            connection: connection_text(c.online, c.last_seen_unix, now),
+            connection: self
+                .notes
+                .get(&c.id)
+                .cloned()
+                .unwrap_or_else(|| connection_text(c.online, c.last_seen_unix, now)),
             profile: self.profile(c.effective_profile_id).map(|p| p.name.clone()),
             exception: c.exception_profile_id != 0,
             os: c.os.clone(),

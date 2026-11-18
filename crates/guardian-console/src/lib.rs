@@ -10,6 +10,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub mod backend;
 pub mod connect_info;
 pub mod embedded;
+pub mod fallback;
 pub mod firewall;
 pub mod fleet;
 pub mod instance;

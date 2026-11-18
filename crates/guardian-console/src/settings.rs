@@ -54,6 +54,8 @@ pub struct ConsoleSettings {
     pub mode: Option<Mode>,
     /// Last login name.
     pub login: Option<String>,
+    /// Port of the agents' local fallback listener (missing = 11500).
+    pub fallback_port: Option<u16>,
     token: Option<Secret>,
 }
 
@@ -92,12 +94,20 @@ struct Stored {
     login: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fallback_port: Option<u16>,
 }
 
 impl ConsoleSettings {
     /// The session token.
     pub fn token(&self) -> Option<&str> {
         self.token.as_ref().map(Secret::expose)
+    }
+
+    /// The agents' local fallback port.
+    pub fn fallback_port(&self) -> u16 {
+        self.fallback_port
+            .unwrap_or(guardian_core::local::DEFAULT_LOCAL_PORT)
     }
 
     /// Replaces the session token.
@@ -143,6 +153,7 @@ impl ConsoleSettings {
         Ok(ConsoleSettings {
             mode,
             login: st.login,
+            fallback_port: st.fallback_port,
             token: st.token.map(Secret),
         })
     }
@@ -152,6 +163,7 @@ impl ConsoleSettings {
         let mut st = Stored {
             login: self.login.clone(),
             token: self.token.as_ref().map(|t| t.0.clone()),
+            fallback_port: self.fallback_port,
             ..Default::default()
         };
         match &self.mode {
@@ -180,8 +192,14 @@ impl ConsoleSettings {
     }
 }
 
+/// The console key and the fallback cache, next to `console.toml`.
+pub fn fallback_paths(settings_path: &Path) -> (PathBuf, PathBuf) {
+    let dir = settings_path.parent().unwrap_or_else(|| Path::new("."));
+    (dir.join("console.key"), dir.join("fallback.pb"))
+}
+
 /// Temp file in the same directory, `sync_all`, rename; 0600 on Unix.
-fn write_private(path: &Path, data: &[u8]) -> std::io::Result<()> {
+pub(crate) fn write_private(path: &Path, data: &[u8]) -> std::io::Result<()> {
     let dir = path.parent().unwrap_or_else(|| Path::new("."));
     std::fs::create_dir_all(dir)?;
     let name = path
