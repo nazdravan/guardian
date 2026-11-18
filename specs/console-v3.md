@@ -18,6 +18,7 @@ described in [`agent-v3.md`](agent-v3.md). The UI is in English.
 | `backend` | a thread with its own tokio runtime: `Action` in, `Event` out; connection, login, `Watch`, admin calls | no |
 | `ui` | `ConsoleApp<B: Backend>`: draws only from events, sends only actions | yes |
 | `logging` | `console.log` rotation (1 MiB, two old files), panic hook | no |
+| `fallback` | local fallback mode: `key` (`console.key`), `cache` (`FallbackCache`, `Reach`), `client` (`LocalClient`: probe, switch, discovery) | no |
 | `testing` (feature) | `FakeBackend` for UI tests | no |
 
 Every `Action` runs under `catch_unwind`: a panic becomes `Event::Error("Internal error in …")` and the window
@@ -31,10 +32,19 @@ stays up. No `unsafe` in the crate.
 | Lock `console.lock` | next to the settings | next to the settings |
 | Embedded server data | `%ProgramData%\Guardian\server\` (ACL: SYSTEM, Administrators, the creating user; not the 2.x `Guardian Server` folder, whose `guardian.db` has another schema) | `<data dir>/guardian-server/` (0700) |
 | Log | `%LOCALAPPDATA%\Guardian\console.log` | `<cache dir>/guardian/console.log` |
+| Fallback key `console.key`, cache `fallback.pb` (0600) | next to the settings | next to the settings |
 
 `console.toml` keys: `mode` (`remote` | `embedded`), `server` and `cert_sha256` (remote), `port` (embedded,
 default 8443), `login` (last login), `token` (the session; removed on sign-out and when the server ends the
-session). The token never reaches the log or the screen.
+session), `fallback_port` (agents' local fallback port, default 11500). The token never reaches the log or the
+screen.
+
+**Local fallback** (remote mode only): the **Local fallback…** window enrolls this console (a console code, or
+**Enable (create a code)** for an admin). While the server cannot be reached the sign-in screen offers
+**Work locally (fallback mode)…** and a signed-in user gets a banner with **Work locally (fallback mode)**; in
+fallback mode the room cards come from the computers' own answers, free profiles are not offered, admin tabs
+are hidden and the banner says changes are undone when the server is back. See
+[`local-fallback-v3.md`](local-fallback-v3.md).
 
 ## Modes
 
@@ -97,8 +107,9 @@ deleting a room or profile, revoking a computer, disabling a user, changing the 
 
 - `Watch` does not send profile edits: another admin's profile changes appear when the Profiles tab is opened
   again (the console reloads profiles on opening it and after its own edits).
-- One-shot commands (message, shutdown, …) have no buttons yet: agents report no capabilities until stage 4,
-  and each feature brings its own button then.
+- One-shot commands (message, shutdown, …) have no buttons yet, online or in fallback mode: agents report no
+  capabilities until stage 4, and each feature brings its own button then.
+- After the server returns the console can take up to 30 s (its reconnect backoff) to leave fallback mode.
 - The window was opened on macOS only (wgpu renderer, embedded server running); it has not been seen on
   Windows.
 - The `●` glyph is not in egui's bundled fonts, so the online dot is drawn as a shape.
@@ -112,6 +123,10 @@ deleting a room or profile, revoking a computer, disabling a user, changing the 
 - `real_embedded` (Unix) — the embedded server and the real `guardian-agent` (enroll, run); on Linux a copy of
   `sleep` named `guardian-test-game` is killed under "Lecție" and lives under "Liber". Needs
   `cargo build --workspace --bins`.
+- `fallback_cache`, `fallback_client`, `backend_fallback`, `ui_fallback` — local fallback mode (agents from the
+  `guardian-agent` library on `127.0.0.1`);
+- `real_fallback` (Unix, ~75 s) — the real `guardian-agent` binary follows a local switch while the server is
+  stopped, and the server's profile wins when it is back.
 
 CI: the `linux` job runs them all; the `windows` job runs the crate's tests and builds
 `guardian-console.exe` for `i686-pc-windows-msvc` (artifact `console-windows`).

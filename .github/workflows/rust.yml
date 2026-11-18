@@ -36,6 +36,7 @@ jobs:
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       # The real server + agent + CLI test needs every binary.
       - run: cargo build --workspace --bins
+      # Includes the console's real_fallback test (~75 s: agents wait 60 s offline).
       - run: cargo test --workspace --all-features
       - run: cargo test -p guardian-agent --test real_linux
       - run: cargo test -p guardian-console --test real_embedded
@@ -53,7 +54,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --workspace
       # GitHub's Windows runners are administrators, so the ETW test runs too.
-      - run: cargo test -p guardian-core -p guardian-proto -p guardian-platform --features guardian-platform/testing -- --include-ignored
+      - run: cargo test -p guardian-core -p guardian-proto -p guardian-local -p guardian-platform --features guardian-platform/testing -- --include-ignored
       - run: cargo test -p guardian-agent
       - run: cargo test -p guardian-console --features testing
       - run: cargo build --release -p guardian-agent -p guardian-worker --target x86_64-pc-windows-msvc

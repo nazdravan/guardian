@@ -103,6 +103,14 @@ Every binary message is one protobuf frame (`AgentFrame` / `ServerFrame`), at mo
    `Command` are pushed; the agent sends `CommandResult` (`ok`, `failed`, `no_user`, `unsupported` only,
    and only for commands targeting it).
 7. Revocation: `ServerError{revoked}`, the socket closes, the key is no longer accepted.
+8. `LocalAudit{entries}` (after local fallback mode): at most 1000 entries per frame go to `audit_log` with
+   `source = 'local'`, the action's own time, `target = computer:<id>`, texts cut to 200 characters; the server
+   answers `LocalAuditAck{up_to_seq}` once they are queued for writing. A lost ack makes the agent send them
+   again (possible duplicate rows).
+
+`AgentState.exception_profile_id` tells the agent it has its own profile (a local room switch must not
+override it), and `Computer.public_key` (Admin and `Watch`) gives consoles the agents' keys for the local
+channel. See [`local-fallback-v3.md`](local-fallback-v3.md).
 
 The list of peer computers in `Welcome` (spec §9.4) is not sent: nothing consumes it before stage 3.
 

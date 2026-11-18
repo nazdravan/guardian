@@ -21,7 +21,9 @@ on one handle; `events.rs` — ETW via `ferrisetw`; `session.rs` + `ffi_session.
 
 `guardian-agent` modules: `config.rs` (`AgentConfig`, `AgentPaths`), `store.rs` (atomic writes, key, state,
 `SeenIds`, local whitelist), `engine.rs` (enforcement), `conn.rs` (enroll + WebSocket with backoff), `agent.rs`
-(`run`, `AgentHandle`, state/command rules), `worker.rs` (`WorkerManager`), `main.rs`, `service_windows.rs`.
+(`run`, `AgentHandle`, state/command rules), `worker.rs` (`WorkerManager`), `local.rs` (local fallback rules,
+switch and journal), `listener.rs` (the local fallback listener), `main.rs`, `service_windows.rs`. Local fallback
+mode is described in [`local-fallback-v3.md`](local-fallback-v3.md).
 
 ## Files
 
@@ -32,10 +34,12 @@ on one handle; `events.rs` — ETW via `ferrisetw`; `session.rs` + `ffi_session.
 | Data dir | `/var/lib/guardian-agent/` (0700, root) | `%ProgramData%\Guardian Agent\` (ACL: SYSTEM + Administrators) |
 | Worker IPC | `/run/guardian-agent/worker.sock` (dir 0711, socket 0666) | `\\.\pipe\guardian-agent-worker` |
 
-`agent.toml`: `server` (`wss://host:port`), `cert_sha256` (optional pin), `computer_id` (set by `enroll`).
+`agent.toml`: `server` (`wss://host:port`), `cert_sha256` (optional pin), `computer_id` (set by `enroll`),
+`local_port` (optional: local fallback TCP + UDP port, default 11500, `0` = off; kept by a re-enrollment).
 Data dir: `agent.key` (ed25519 seed, 32 bytes, private), `state.pb` (`StoredState`: last `AgentState`, trusted
 consoles and users, save time, computer id), `seen.txt` (last 1000 command ids), `whitelist.txt` (local, one name
-per line, `#` comments), `agent.log` (Windows service only). Every state write is temp file + `sync_all` + `rename`.
+per line, `#` comments), `local.pb` (`LocalStore`: the local profile switch and the journal of local actions,
+private), `agent.log` (Windows service only). Every state write is temp file + `sync_all` + `rename`.
 
 ## Startup and state rules
 
@@ -51,8 +55,11 @@ per line, `#` comments), `agent.log` (Windows service only). Every state write i
    command id gets exactly one `CommandResult{RESULT_UNSUPPORTED}`.
 7. `revoked` from the server: the connection stops, the last policy keeps being enforced.
 8. A saved state whose `computer_id` is not this enrollment's is ignored (another server, or a re-enrollment),
-   and a successful `enroll` deletes `state.pb` and `seen.txt`.
-9. Offline = no authenticated connection for 60 s (only reported in stage 2; local fallback mode is stage 3).
+   and a successful `enroll` deletes `state.pb`, `seen.txt` and `local.pb`.
+9. Offline = no authenticated connection for 60 s; only then are local fallback requests accepted.
+10. A local profile switch (`local.pb`) applies on top of the server state, also after a restart, until the
+    server answers again: then the journal is sent (`LocalAudit`), the switch is dropped and the server state
+    is re-applied even when its version did not change. Journal entries are deleted on `LocalAuditAck`.
 
 ## Enforcement (`engine.rs`)
 
@@ -114,7 +121,7 @@ per line, `#` comments), `agent.log` (Windows service only). Every state write i
 guardian-agent [--config PATH] [--data-dir DIR] [--log FILTER] <command>
   enroll --server wss://host:port --code CODE [--cert-sha256 HEX]   # exit 1 if already enrolled
   run                                                               # foreground until SIGINT/SIGTERM
-  status                                                            # saved config/state, no IPC
+  status                                                            # saved config/state, local switch, no IPC
   service install|uninstall|run                                     # Windows only
 ```
 
