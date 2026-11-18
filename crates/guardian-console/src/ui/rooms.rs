@@ -51,7 +51,12 @@ fn computers_table(ui: &mut egui::Ui, id: &str, list: &[ComputerView]) {
         });
 }
 
-fn room_card(ui: &mut egui::Ui, fleet: &Fleet, r: &RoomView) -> Option<ProfileChoice> {
+fn room_card(
+    ui: &mut egui::Ui,
+    fleet: &Fleet,
+    r: &RoomView,
+    allow_free: bool,
+) -> Option<ProfileChoice> {
     let mut choice = None;
     egui::Frame::group(ui.style()).show(ui, |ui| {
         ui.set_width(ui.available_width());
@@ -68,6 +73,9 @@ fn room_card(ui: &mut egui::Ui, fleet: &Fleet, r: &RoomView) -> Option<ProfileCh
                 .selected_text(current)
                 .show_ui(ui, |ui| {
                     for p in fleet.profiles() {
+                        if !allow_free && p.mode == PMode::Free as i32 {
+                            continue;
+                        }
                         let selected = r.profile.as_ref().is_some_and(|c| c.id == p.id);
                         if ui.selectable_label(selected, &p.name).clicked() && !selected {
                             choice = Some(ProfileChoice {
@@ -92,7 +100,13 @@ fn room_card(ui: &mut egui::Ui, fleet: &Fleet, r: &RoomView) -> Option<ProfileCh
 }
 
 /// Draws every room; returns a profile switch the user picked.
-pub fn show(ui: &mut egui::Ui, fleet: &Fleet, admin: bool) -> Option<ProfileChoice> {
+/// `allow_free: false` (fallback mode) leaves the free profiles out.
+pub fn show(
+    ui: &mut egui::Ui,
+    fleet: &Fleet,
+    admin: bool,
+    allow_free: bool,
+) -> Option<ProfileChoice> {
     let mut choice = None;
     let rooms = fleet.rooms();
     if rooms.is_empty() {
@@ -103,7 +117,7 @@ pub fn show(ui: &mut egui::Ui, fleet: &Fleet, admin: bool) -> Option<ProfileChoi
         });
     }
     for r in &rooms {
-        if let Some(c) = room_card(ui, fleet, r) {
+        if let Some(c) = room_card(ui, fleet, r, allow_free) {
             choice = Some(c);
         }
         ui.add_space(8.0);

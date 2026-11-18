@@ -8,6 +8,7 @@ mod admin_settings;
 mod admin_users;
 mod confirm;
 mod connect_window;
+mod fallback;
 mod login;
 mod rooms;
 mod setup;
@@ -18,7 +19,7 @@ use std::time::{Duration, Instant};
 use egui::RichText;
 use guardian_proto::v1::{EnrollCode, Profile, Role, Settings, User};
 
-use crate::backend::{Action, Backend, ConnState, Event};
+use crate::backend::{Action, Backend, ConnState, Event, FallbackState};
 use crate::connect_info;
 use crate::embedded::EmbeddedState;
 use crate::fleet::Fleet;
@@ -172,6 +173,7 @@ pub struct ConsoleApp<B: Backend> {
     admin: Admin,
     /// The Connection info window is open.
     pub connect_open: bool,
+    fb: fallback::FallbackUi,
 }
 
 impl<B: Backend> std::fmt::Debug for ConsoleApp<B> {
@@ -221,6 +223,7 @@ impl<B: Backend> ConsoleApp<B> {
             tab: Tab::Overview,
             admin: Admin::default(),
             connect_open: false,
+            fb: fallback::FallbackUi::default(),
         }
     }
 
@@ -230,9 +233,15 @@ impl<B: Backend> ConsoleApp<B> {
     }
 
     fn is_admin(&self) -> bool {
-        self.user
-            .as_ref()
-            .is_some_and(|u| u.role == Role::Admin as i32)
+        !self.fb.is_active()
+            && self
+                .user
+                .as_ref()
+                .is_some_and(|u| u.role == Role::Admin as i32)
+    }
+
+    fn is_remote(&self) -> bool {
+        matches!(self.mode, Some(Mode::Remote { .. }))
     }
 
     fn handle(&mut self, e: Event) {
@@ -267,7 +276,8 @@ impl<B: Backend> ConsoleApp<B> {
                 self.embedded = s;
             }
             Event::FirewallBlocked(p) => self.firewall_blocked = Some(p),
-            Event::Fallback(_) | Event::FallbackEnabled(_) => {}
+            Event::Fallback(st) => self.fb.set_state(st),
+            Event::FallbackEnabled(id) => self.fb.enabled = id,
             Event::Done(m) => {
                 if m.starts_with("Port ") && m.contains("open in the firewall") {
                     self.firewall_blocked = None;
@@ -301,6 +311,21 @@ impl<B: Backend> ConsoleApp<B> {
             && status::banner(ui, &e, &["Dismiss"]).is_some()
         {
             self.error = None;
+        }
+        if self.fb.is_active() {
+            if let Some(a) = self.fb.active_banner(ui) {
+                self.backend.send(a);
+            }
+        } else if self.fb.is_available()
+            && self.user.is_some()
+            && status::banner(
+                ui,
+                "The server cannot be reached. You can work directly with the computers on this network.",
+                &["Work locally (fallback mode)"],
+            )
+            .is_some()
+        {
+            self.backend.send(Action::EnterFallback);
         }
         if let Some(port) = self.firewall_blocked
             && status::banner(
@@ -361,7 +386,13 @@ impl<B: Backend> ConsoleApp<B> {
             if ui.button("Change mode…").clicked() {
                 self.admin.confirm = Some(Confirm::ChangeMode);
             }
+            if self.fb.is_available() && ui.button("Work locally (fallback mode)…").clicked() {
+                self.fb.login_open = true;
+            }
         });
+        if let Some(a) = self.fb.login_window(ui) {
+            self.backend.send(a);
+        }
         ui.add_space(6.0);
         if matches!(self.embedded, EmbeddedState::Failed { .. }) {
             self.admin_confirmation(ui);
@@ -434,17 +465,24 @@ impl<B: Backend> ConsoleApp<B> {
 
     fn bottom_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            if let Some(u) = &self.user {
-                ui.label(format!("Signed in as {} ({})", u.login, role_name(u)));
-            }
-            if ui.button("Change password…").clicked() {
-                self.password.open = true;
-            }
-            if ui.button("Sign out").clicked() {
-                self.backend.send(Action::Logout);
-            }
-            if ui.button("Connection info…").clicked() {
-                self.connect_open = true;
+            if let FallbackState::Active { user, .. } = &self.fb.state {
+                ui.label(format!("Signed in locally as {}", user.login));
+            } else {
+                if let Some(u) = &self.user {
+                    ui.label(format!("Signed in as {} ({})", u.login, role_name(u)));
+                }
+                if ui.button("Change password…").clicked() {
+                    self.password.open = true;
+                }
+                if ui.button("Sign out").clicked() {
+                    self.backend.send(Action::Logout);
+                }
+                if ui.button("Connection info…").clicked() {
+                    self.connect_open = true;
+                }
+                if self.is_remote() && ui.button("Local fallback…").clicked() {
+                    self.fb.window_open = true;
+                }
             }
             if let Some((m, at)) = &self.done
                 && at.elapsed() < Duration::from_secs(6)
@@ -511,7 +549,12 @@ impl<B: Backend> ConsoleApp<B> {
             }
             egui::ScrollArea::vertical().show(ui, |ui| match self.tab {
                 Tab::Overview => {
-                    if let Some(c) = rooms::show(ui, &self.fleet, self.is_admin()) {
+                    let fleet = match &self.fb.state {
+                        FallbackState::Active { fleet, .. } => fleet,
+                        _ => &self.fleet,
+                    };
+                    let allow_free = !self.fb.is_active();
+                    if let Some(c) = rooms::show(ui, fleet, self.is_admin(), allow_free) {
                         if c.free {
                             self.pending_profile = Some(c);
                         } else {
@@ -530,6 +573,13 @@ impl<B: Backend> ConsoleApp<B> {
         self.password_window(ui);
         self.connect_window(ui);
         self.rename_windows(ui);
+        let admin = self
+            .user
+            .as_ref()
+            .is_some_and(|u| u.role == Role::Admin as i32);
+        if let Some(a) = self.fb.window(ui, admin) {
+            self.backend.send(a);
+        }
     }
 
     fn admin_tab(&mut self, ui: &mut egui::Ui, tab: Tab) {
@@ -598,6 +648,9 @@ impl<B: Backend> ConsoleApp<B> {
         }
         if self.mode.is_none() {
             egui::CentralPanel::default().show(ui, |ui| self.setup_screen(ui));
+        } else if self.fb.is_active() {
+            self.tab = Tab::Overview;
+            self.main_screen(ui);
         } else if self.user.is_none() {
             egui::CentralPanel::default().show(ui, |ui| self.sign_in_screen(ui));
         } else {
