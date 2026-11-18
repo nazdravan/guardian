@@ -37,7 +37,7 @@ pub struct ComputerView {
     pub name: String,
     /// Connected now.
     pub online: bool,
-    /// "● Online", "Offline · 5 min ago", …
+    /// "Online", "Offline · 5 min ago", …
     pub connection: String,
     /// Name of the effective profile.
     pub profile: Option<String>,
@@ -64,10 +64,10 @@ fn now_unix() -> i64 {
         .unwrap_or(0)
 }
 
-/// "● Online", "Never connected", "Offline · just now / N min / N h / N days ago".
+/// "Online", "Never connected", "Offline · just now / N min / N h / N days ago".
 pub fn connection_text(online: bool, last_seen_unix: i64, now_unix: i64) -> String {
     if online {
-        return "● Online".into();
+        return "Online".into();
     }
     if last_seen_unix == 0 {
         return "Never connected".into();

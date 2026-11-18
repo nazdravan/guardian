@@ -14,3 +14,7 @@ pub mod firewall;
 pub mod fleet;
 pub mod instance;
 pub mod settings;
+pub mod ui;
+
+#[cfg(feature = "testing")]
+pub mod testing;

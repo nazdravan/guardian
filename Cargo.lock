@@ -2008,6 +2008,7 @@ dependencies = [
  "futures-util",
  "gethostname",
  "guardian-client",
+ "guardian-console",
  "guardian-proto",
  "guardian-server",
  "if-addrs",

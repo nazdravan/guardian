@@ -35,6 +35,7 @@ rfd.workspace = true
 winresource.workspace = true
 
 [dev-dependencies]
+guardian-console = { path = ".", features = ["testing"] }
 guardian-server = { workspace = true, features = ["testing"] }
 tokio.workspace = true
 tempfile.workspace = true

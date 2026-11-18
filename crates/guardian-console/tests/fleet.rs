@@ -159,7 +159,7 @@ fn unassigned_lists_room_zero() {
 #[test]
 fn connection_texts() {
     let now = 1_000_000;
-    assert_eq!(connection_text(true, now - 5000, now), "● Online");
+    assert_eq!(connection_text(true, now - 5000, now), "Online");
     assert_eq!(connection_text(false, 0, now), "Never connected");
     assert_eq!(connection_text(false, now - 30, now), "Offline · just now");
     assert_eq!(
