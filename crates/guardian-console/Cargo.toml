@@ -15,6 +15,7 @@ path = "src/main.rs"
 testing = []
 
 [dependencies]
+guardian-server.workspace = true
 futures-util.workspace = true
 tokio.workspace = true
 tonic.workspace = true

@@ -18,6 +18,7 @@ use tonic::transport::Channel;
 
 pub use errors::{login_error_text, status_text};
 
+use crate::embedded::{self, EmbeddedState};
 use crate::fleet::Fleet;
 use crate::settings::{ConsoleSettings, Mode, Secret};
 
@@ -49,6 +50,18 @@ pub enum Action {
     },
     /// Sign out.
     Logout,
+    /// Start the embedded server and connect to it (`data_dir: None` = the
+    /// standard place).
+    StartEmbedded {
+        /// Data directory.
+        data_dir: Option<PathBuf>,
+        /// Listening port.
+        port: u16,
+    },
+    /// Stop the embedded server.
+    StopEmbedded,
+    /// Add the firewall rule for the embedded server (Windows).
+    OpenFirewall,
     /// Stop everything (the window is closing).
     Shutdown,
 }
@@ -103,6 +116,11 @@ pub enum Event {
     Done(String),
     /// Something failed.
     Error(String),
+    /// The embedded server's state.
+    Embedded(EmbeddedState),
+    /// Agents on other computers cannot reach the embedded server until this
+    /// port is opened in the firewall (Windows).
+    FirewallBlocked(u16),
 }
 
 /// The UI's view of a backend.
@@ -125,6 +143,7 @@ pub(crate) struct Core {
     fleet: Mutex<Fleet>,
     session: Mutex<Option<JoinHandle<()>>>,
     bootstrap: Mutex<Option<String>>,
+    embedded: tokio::sync::Mutex<Option<(guardian_server::ServerHandle, u16)>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -261,8 +280,85 @@ async fn handle(core: Arc<Core>, a: Action) {
             password,
         } => conn::init(core, bootstrap_code, login, password).await,
         Action::Logout => conn::logout(core).await,
+        Action::StartEmbedded { data_dir, port } => start_embedded(core, data_dir, port).await,
+        Action::StopEmbedded => {
+            core.abort_session();
+            stop_embedded(&core).await;
+        }
+        Action::OpenFirewall => open_firewall(core).await,
         Action::Shutdown => {}
     }
+}
+
+async fn start_embedded(core: Arc<Core>, data_dir: Option<PathBuf>, port: u16) {
+    core.abort_session();
+    stop_embedded(&core).await;
+    core.emit(Event::Embedded(EmbeddedState::Starting));
+    let dir = data_dir.unwrap_or_else(crate::settings::embedded_data_dir);
+    let prepared = {
+        let dir = dir.clone();
+        tokio::task::spawn_blocking(move || embedded::prepare_data_dir(&dir))
+            .await
+            .unwrap_or_else(|e| Err(e.to_string()))
+    };
+    let started = match prepared {
+        Ok(()) => embedded::start_embedded(&dir, port).await,
+        Err(e) => Err(e),
+    };
+    let handle = match started {
+        Ok(h) => h,
+        Err(reason) => {
+            tracing::error!("embedded server: {reason}");
+            core.emit(Event::Embedded(EmbeddedState::Failed { reason }));
+            return;
+        }
+    };
+    let pin = handle.cert_sha256().unwrap_or_default();
+    tracing::info!("embedded server listening on {}", handle.local_addr());
+    core.set_bootstrap(handle.bootstrap_code());
+    core.set_mode(Mode::Embedded { port });
+    *core.embedded.lock().await = Some((handle, port));
+    core.emit(Event::Embedded(EmbeddedState::Running {
+        port,
+        cert_sha256: pin.clone(),
+        started_at: std::time::Instant::now(),
+    }));
+    #[cfg(windows)]
+    if !crate::firewall::rule_exists() {
+        core.emit(Event::FirewallBlocked(port));
+    }
+    core.start_session(format!("https://127.0.0.1:{port}"), Some(pin));
+}
+
+async fn stop_embedded(core: &Arc<Core>) {
+    let taken = core.embedded.lock().await.take();
+    if let Some((h, _)) = taken {
+        h.shutdown().await;
+        core.emit(Event::Embedded(EmbeddedState::Stopped));
+    }
+}
+
+async fn open_firewall(core: Arc<Core>) {
+    let port = core.embedded.lock().await.as_ref().map(|(_, p)| *p);
+    let Some(port) = port else {
+        core.emit(Event::Error("The embedded server is not running.".into()));
+        return;
+    };
+    #[cfg(windows)]
+    {
+        match tokio::task::spawn_blocking(move || crate::firewall::open_firewall(port)).await {
+            Ok(Ok(())) => core.emit(Event::Done(format!("Port {port} is open in the firewall"))),
+            Ok(Err(e)) => {
+                core.emit(Event::Error(e));
+                core.emit(Event::FirewallBlocked(port));
+            }
+            Err(e) => core.emit(Event::Error(e.to_string())),
+        }
+    }
+    #[cfg(not(windows))]
+    core.emit(Event::Done(format!(
+        "No firewall rule needed on this system (port {port})"
+    )));
 }
 
 /// Runs `a` so that a panic becomes an error event instead of killing the
@@ -338,6 +434,7 @@ impl RealBackend {
                     fleet: Mutex::new(Fleet::default()),
                     session: Mutex::new(None),
                     bootstrap: Mutex::new(None),
+                    embedded: tokio::sync::Mutex::new(None),
                 });
                 rt.block_on(async {
                     while let Some(a) = arx.recv().await {
@@ -347,6 +444,7 @@ impl RealBackend {
                         tokio::spawn(guarded(core.clone(), a));
                     }
                     core.abort_session();
+                    stop_embedded(&core).await;
                 });
                 rt.shutdown_timeout(Duration::from_secs(2));
                 let _ = dtx.send(());

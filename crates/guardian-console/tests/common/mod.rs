@@ -63,7 +63,10 @@ impl Console {
                     }
                 }
             }
-            assert!(Instant::now() < end, "timed out waiting for {what}: {got:?}");
+            assert!(
+                Instant::now() < end,
+                "timed out waiting for {what}: {got:?}"
+            );
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     }
