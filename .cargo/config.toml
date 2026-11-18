@@ -1,0 +1,3 @@
+# One self-contained 32-bit guardian-console.exe: no VC++ redistributable needed.
+[target.i686-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

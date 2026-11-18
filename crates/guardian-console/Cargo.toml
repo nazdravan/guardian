@@ -1,0 +1,29 @@
+[package]
+name = "guardian-console"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Guardian 3.0 teacher console"
+
+[[bin]]
+name = "guardian-console"
+path = "src/main.rs"
+
+[features]
+# FakeBackend for UI tests.
+testing = []
+
+[dependencies]
+egui.workspace = true
+eframe.workspace = true
+rfd.workspace = true
+
+[target.'cfg(windows)'.build-dependencies]
+winresource.workspace = true
+
+[dev-dependencies]
+egui_kittest.workspace = true
+
+[lints]
+workspace = true

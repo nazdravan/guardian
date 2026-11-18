@@ -4,7 +4,7 @@ members = ["crates/*"]
 
 [workspace.package]
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.95"
 license = "MIT"
 version = "3.0.0-dev"
 
@@ -24,6 +24,7 @@ guardian-client = { path = "crates/guardian-client" }
 guardian-platform = { path = "crates/guardian-platform" }
 guardian-agent = { path = "crates/guardian-agent" }
 guardian-worker = { path = "crates/guardian-worker" }
+guardian-console = { path = "crates/guardian-console" }
 
 tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal", "fs", "io-util"] }
 tokio-stream = { version = "0.1", features = ["sync", "net"] }
@@ -74,6 +75,11 @@ nix = { version = "0.32", features = ["signal", "socket", "uio", "user", "proces
 ferrisetw = "1.2"
 netlink-sys = { version = "0.8", default-features = false }
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading", "Win32_System_ProcessStatus", "Win32_System_RemoteDesktop", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Environment", "Win32_System_Pipes", "Win32_System_IO"] }
+egui = "0.37"
+eframe = { version = "0.37", default-features = false, features = ["default_fonts", "accesskit", "wgpu", "glow", "x11", "wayland"] }
+egui_kittest = "0.37"
+rfd = "0.17"
+winresource = "0.1"
 
 [profile.dev.package.argon2]
 opt-level = 3
