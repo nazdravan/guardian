@@ -3,6 +3,7 @@ syntax = "proto3";
 package guardian.v1;
 
 import "guardian/v1/common.proto";
+import "guardian/v1/local.proto";
 
 // Every binary WebSocket message is exactly one protobuf-encoded frame.
 
@@ -38,7 +39,18 @@ message AgentFrame {
     Hello hello = 2;
     ChallengeResponse challenge_response = 3;
     CommandResult command_result = 4;
+    LocalAudit local_audit = 5;
   }
+}
+
+// Actions taken in local fallback mode, sent after Welcome.
+message LocalAudit {
+  repeated LocalAuditEntry entries = 1;
+}
+
+// The server stored every entry with seq <= up_to_seq.
+message LocalAuditAck {
+  uint64 up_to_seq = 1;
 }
 
 message Enrolled {
@@ -84,6 +96,7 @@ message ServerFrame {
     ServerError error = 6;
     // Only consoles + users are set.
     Welcome trust_update = 7;
+    LocalAuditAck local_audit_ack = 8;
   }
 }
 

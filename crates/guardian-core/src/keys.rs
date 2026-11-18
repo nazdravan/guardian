@@ -24,6 +24,33 @@ impl AuthContext {
     }
 }
 
+/// What a free-form signature is for (discovery datagrams); the label keeps
+/// one kind from being accepted as the other.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SignContext {
+    /// A console looking for agents on the LAN.
+    Discover,
+    /// An agent answering it.
+    DiscoverReply,
+}
+
+impl SignContext {
+    fn label(self) -> &'static [u8] {
+        match self {
+            SignContext::Discover => b"guardian/v1/discover",
+            SignContext::DiscoverReply => b"guardian/v1/discover-reply",
+        }
+    }
+}
+
+fn labeled(ctx: SignContext, msg: &[u8]) -> Vec<u8> {
+    let label = ctx.label();
+    let mut m = Vec::with_capacity(label.len() + msg.len());
+    m.extend_from_slice(label);
+    m.extend_from_slice(msg);
+    m
+}
+
 /// Why a key or signature was rejected.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum KeyError {
@@ -69,6 +96,17 @@ impl KeyPair {
         PublicKey(self.0.verifying_key().to_bytes())
     }
 
+    /// The X25519 private key for Noise (the standard Ed25519 → X25519
+    /// conversion: the unclamped scalar bytes; X25519 clamps them).
+    pub fn x25519_secret(&self) -> Zeroizing<[u8; 32]> {
+        Zeroizing::new(self.0.to_scalar_bytes())
+    }
+
+    /// Signs `label(ctx) || msg`.
+    pub fn sign(&self, ctx: SignContext, msg: &[u8]) -> Signature {
+        Signature(self.0.sign(&labeled(ctx, msg)).to_bytes())
+    }
+
     /// Signs `label || nonce || subject_le`.
     pub fn sign_challenge(&self, ctx: AuthContext, subject: u64, nonce: &[u8; 32]) -> Signature {
         Signature(
@@ -102,6 +140,20 @@ impl PublicKey {
     /// The raw 32 bytes.
     pub fn as_bytes(&self) -> &[u8; 32] {
         &self.0
+    }
+
+    /// The X25519 public key matching [`KeyPair::x25519_secret`].
+    pub fn x25519(&self) -> Result<[u8; 32], KeyError> {
+        let vk = VerifyingKey::from_bytes(&self.0).map_err(|_| KeyError::Malformed)?;
+        Ok(vk.to_montgomery().to_bytes())
+    }
+
+    /// Verifies (strictly) a signature made by [`KeyPair::sign`].
+    pub fn verify(&self, ctx: SignContext, msg: &[u8], sig: &Signature) -> Result<(), KeyError> {
+        let vk = VerifyingKey::from_bytes(&self.0).map_err(|_| KeyError::Malformed)?;
+        let s = ed25519_dalek::Signature::from_bytes(&sig.0);
+        vk.verify_strict(&labeled(ctx, msg), &s)
+            .map_err(|_| KeyError::BadSignature)
     }
 
     /// Verifies (strictly) a signature made by [`KeyPair::sign_challenge`].
@@ -198,6 +250,30 @@ mod tests {
     fn malformed_bytes_are_rejected() {
         assert_eq!(PublicKey::from_bytes(&[0u8; 31]), Err(KeyError::Malformed));
         assert_eq!(Signature::from_bytes(&[0u8; 63]), Err(KeyError::Malformed));
+    }
+
+    #[test]
+    fn x25519_halves_match() {
+        let k = KeyPair::generate();
+        let secret = k.x25519_secret();
+        let derived = curve25519_dalek::MontgomeryPoint::mul_base_clamped(*secret);
+        assert_eq!(derived.to_bytes(), k.public().x25519().unwrap());
+    }
+
+    #[test]
+    fn sign_contexts_do_not_mix() {
+        let k = KeyPair::generate();
+        let s = k.sign(SignContext::Discover, b"hello");
+        let pk = k.public();
+        assert!(pk.verify(SignContext::Discover, b"hello", &s).is_ok());
+        assert_eq!(
+            pk.verify(SignContext::DiscoverReply, b"hello", &s),
+            Err(KeyError::BadSignature)
+        );
+        assert_eq!(
+            pk.verify(SignContext::Discover, b"hellp", &s),
+            Err(KeyError::BadSignature)
+        );
     }
 
     #[test]

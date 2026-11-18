@@ -193,6 +193,7 @@ async fn older_state_is_ignored() {
                 apps: vec![],
             }],
             room_id: 0,
+            exception_profile_id: 0,
         })),
     };
     s.handle.state().hub.send(id, push(v - 1));
@@ -299,6 +300,7 @@ fn old_exam_state(computer_id: u64) -> guardian_proto::v1::StoredState {
                 mode: guardian_proto::v1::Mode::Whitelist as i32,
                 apps: vec![],
             }],
+            exception_profile_id: 0,
         }),
         computer_id,
         ..Default::default()

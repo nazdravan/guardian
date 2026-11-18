@@ -22,6 +22,8 @@ message AgentState {
   repeated Profile profiles = 3;
   // 0 = no room.
   int64 room_id = 4;
+  // The computer's own profile; 0 = none (local fallback must not override it).
+  int64 exception_profile_id = 5;
 }
 
 message MessageCmd {

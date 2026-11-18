@@ -86,6 +86,8 @@ message Computer {
   bool online = 9;
   int64 last_seen_unix = 10;
   int64 effective_profile_id = 11;
+  // ed25519 key of the agent (for the local fallback channel).
+  bytes public_key = 12;
 }
 
 // ---- Admin ----

@@ -31,6 +31,7 @@ fn welcome_carries_profiles() {
                 effective_profile_id: 2,
                 profiles: vec![p],
                 room_id: 0,
+                exception_profile_id: 0,
             }),
             ..Default::default()
         })),
@@ -55,6 +56,7 @@ fn stored_state_and_worker_frames_roundtrip() {
             effective_profile_id: 2,
             profiles: vec![],
             room_id: 1,
+            exception_profile_id: 0,
         }),
         consoles: vec![TrustedConsole {
             console_id: 1,

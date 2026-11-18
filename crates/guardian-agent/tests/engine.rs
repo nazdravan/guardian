@@ -321,6 +321,7 @@ fn policy_from_state_picks_effective_or_default() {
                 apps: vec!["word.exe".into()],
             },
         ],
+        exception_profile_id: 0,
     };
     let p = Policy::from_state(&st);
     assert_eq!(

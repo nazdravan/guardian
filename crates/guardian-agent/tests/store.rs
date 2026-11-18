@@ -59,6 +59,7 @@ fn state_roundtrips() {
             effective_profile_id: 2,
             profiles: vec![],
             room_id: 1,
+            exception_profile_id: 0,
         }),
         computer_id: 9,
         ..Default::default()

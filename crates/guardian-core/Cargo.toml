@@ -13,5 +13,8 @@ getrandom.workspace = true
 uuid.workspace = true
 zeroize.workspace = true
 
+[dev-dependencies]
+curve25519-dalek = "5"
+
 [lints]
 workspace = true

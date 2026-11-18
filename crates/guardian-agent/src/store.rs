@@ -137,6 +137,7 @@ pub fn default_state() -> StoredState {
             version: 0,
             effective_profile_id: 0,
             room_id: 0,
+            exception_profile_id: 0,
             profiles: vec![Profile {
                 id: 0,
                 name: DEFAULT_PROFILE.into(),

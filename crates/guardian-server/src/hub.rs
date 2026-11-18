@@ -173,6 +173,8 @@ pub async fn build_agent_state(db: &Db, computer_id: u64) -> Result<AgentState, 
         effective_profile_id: row.effective_profile(settings.default_profile_id),
         profiles: profiles.iter().map(|p| p.to_proto()).collect(),
         room_id: row.room_id.unwrap_or(0),
+        // Filled in by the local-fallback work (stage 3b, Task 3).
+        exception_profile_id: 0,
     })
 }
 

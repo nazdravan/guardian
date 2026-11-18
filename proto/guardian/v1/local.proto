@@ -1,0 +1,125 @@
+syntax = "proto3";
+
+package guardian.v1;
+
+import "guardian/v1/common.proto";
+import "guardian/v1/api.proto";
+
+// The local fallback channel between a teacher console and an agent (§11):
+// Noise IK over TCP, one protobuf message per frame. Discovery uses UDP.
+
+message LocalActor {
+  int64 user_id = 1;
+  string login = 2;
+}
+
+message LocalSetProfile {
+  int64 room_id = 1;
+  int64 profile_id = 2;
+}
+
+message StatusRequest {}
+
+message LocalRequest {
+  // UUID, echoed in the reply.
+  string id = 1;
+  LocalActor actor = 2;
+  oneof kind {
+    StatusRequest status = 3;
+    LocalSetProfile set_profile = 4;
+    CommandEnvelope command = 5;
+  }
+}
+
+message LocalStatus {
+  uint64 computer_id = 1;
+  int64 room_id = 2;
+  int64 effective_profile_id = 3;
+  bool local_override = 4;
+  uint64 state_version = 5;
+  repeated string capabilities = 6;
+}
+
+// Codes: online, revoked, unauthorized, not_in_room, has_exception,
+// unknown_profile, free_profile, bad_request.
+message LocalRefused {
+  string code = 1;
+  string message = 2;
+}
+
+message LocalReply {
+  string request_id = 1;
+  oneof kind {
+    LocalStatus status = 2;
+    LocalRefused refused = 3;
+    CommandResult command_result = 4;
+  }
+}
+
+message DiscoverRequest {
+  int64 console_id = 1;
+  // 16 bytes.
+  bytes nonce = 2;
+  bytes signature = 3;
+}
+
+message DiscoverReply {
+  uint64 computer_id = 1;
+  bytes nonce = 2;
+  uint32 port = 3;
+  bool online = 4;
+  bytes signature = 5;
+}
+
+message LocalAuditEntry {
+  uint64 seq = 1;
+  int64 at_unix = 2;
+  int64 console_id = 3;
+  int64 user_id = 4;
+  string login = 5;
+  string action = 6;
+  string detail = 7;
+}
+
+message LocalOverride {
+  int64 room_id = 1;
+  int64 profile_id = 2;
+  int64 set_at_unix = 3;
+  int64 user_id = 4;
+}
+
+// What the agent keeps on disk (local.pb).
+message LocalStore {
+  uint64 computer_id = 1;
+  LocalOverride override = 2;
+  repeated LocalAuditEntry journal = 3;
+  uint64 next_seq = 4;
+}
+
+message CachedUser {
+  int64 user_id = 1;
+  string login = 2;
+  Role role = 3;
+  repeated int64 room_ids = 4;
+  // argon2id PHC string.
+  string verifier = 5;
+}
+
+message CachedComputer {
+  uint64 id = 1;
+  string name = 2;
+  int64 room_id = 3;
+  bytes public_key = 4;
+  repeated string lan_addresses = 5;
+  int64 exception_profile_id = 6;
+}
+
+// What the console keeps on disk (fallback.pb).
+message ConsoleCache {
+  string server = 1;
+  int64 console_id = 2;
+  repeated CachedUser users = 3;
+  repeated Room rooms = 4;
+  repeated CachedComputer computers = 5;
+  repeated Profile profiles = 6;
+}
