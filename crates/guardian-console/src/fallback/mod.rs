@@ -2,6 +2,7 @@
 //! cache, and (in `client`) the channel to the agents on the school network.
 
 pub mod cache;
+pub mod client;
 pub mod key;
 
 use std::path::PathBuf;

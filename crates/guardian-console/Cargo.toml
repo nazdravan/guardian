@@ -46,6 +46,9 @@ guardian-server = { workspace = true, features = ["testing"] }
 tokio.workspace = true
 tempfile.workspace = true
 egui_kittest.workspace = true
+guardian-agent.workspace = true
+guardian-platform = { workspace = true, features = ["testing"] }
+sqlx.workspace = true
 
 [lints]
 workspace = true

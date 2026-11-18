@@ -231,3 +231,46 @@ pub async fn offline(w: &mut World, h: &AgentHandle) {
         "agent never went offline"
     );
 }
+
+/// Another computer enrolled in the world's room.
+pub struct ExtraAgent {
+    pub dir: tempfile::TempDir,
+    pub paths: AgentPaths,
+    pub f: Arc<FakePlatform>,
+    pub id: u64,
+}
+
+pub async fn extra_agent(w: &World) -> ExtraAgent {
+    let mut a = w.admin_client().await;
+    let code = a
+        .create_enroll_code(req(
+            &w.admin,
+            CreateEnrollCodeRequest {
+                kind: EnrollCodeKind::EnrollAgent as i32,
+                room_id: w.room,
+                max_uses: 1,
+                ttl_seconds: 0,
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner()
+        .code;
+    let dir = tempfile::tempdir().unwrap();
+    let paths = AgentPaths::under(dir.path());
+    let f = FakePlatform::new(Os::Windows);
+    let s = w.server();
+    let base = s.ws_url().trim_end_matches("/agent/ws").to_string();
+    let id = enroll(&paths, &base, s.pin().as_deref(), &code, &*f)
+        .await
+        .unwrap();
+    ExtraAgent { dir, paths, f, id }
+}
+
+/// The agent's public key, read from its files.
+pub fn agent_public(paths: &AgentPaths) -> guardian_core::keys::PublicKey {
+    let seed: [u8; 32] = std::fs::read(paths.key()).unwrap()[..32]
+        .try_into()
+        .unwrap();
+    KeyPair::from_seed(&seed).public()
+}
