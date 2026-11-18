@@ -25,6 +25,7 @@ guardian-platform = { path = "crates/guardian-platform" }
 guardian-agent = { path = "crates/guardian-agent" }
 guardian-worker = { path = "crates/guardian-worker" }
 guardian-console = { path = "crates/guardian-console" }
+guardian-local = { path = "crates/guardian-local" }
 
 tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal", "fs", "io-util"] }
 tokio-stream = { version = "0.1", features = ["sync", "net"] }
@@ -47,6 +48,7 @@ rustls-native-certs = "0.8"
 rustls-pki-types = { version = "1", features = ["std"] }
 gethostname = "1"
 ed25519-dalek = "3"
+snow = "0.10"
 argon2 = "0.6"
 sha2 = "0.11"
 rand = "0.10"

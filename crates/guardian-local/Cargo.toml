@@ -1,0 +1,21 @@
+[package]
+name = "guardian-local"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Guardian 3.0 local fallback channel (Noise IK) and LAN discovery"
+
+[dependencies]
+guardian-core.workspace = true
+guardian-proto.workspace = true
+snow.workspace = true
+prost.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+
+[lints]
+workspace = true
