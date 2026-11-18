@@ -23,7 +23,8 @@ First administrator
 -------------------
 The service log shows the certificate SHA-256 and, until the first
 administrator exists, a bootstrap code. Create the administrator with
-    guardian-cli.exe init --server https://<THIS-COMPUTER>:8443 --cert-sha256 <sha256>
+    guardian-cli.exe init --server https://<THIS-COMPUTER>:8443 --cert-sha256 <sha256> --code <bootstrap code> --login admin
+(the password is read from the prompt)
 or from guardian-console.exe ("Connect to a server").
 
 Remove: guardian-server.exe service uninstall

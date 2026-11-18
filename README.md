@@ -7,236 +7,111 @@
 <img src="docs/assets/guardian-banner.png" alt="Guardian shield" />
 
 
-**Process monitoring and control system — block or whitelist applications across Windows machines, manage them remotely from an Android app, all coordinated through a central server.**
+**Guardian 3.0 controls which programs run on the computers of a class: profiles per room (free, blacklist,
+whitelist), a teacher's console, agents on Windows and Linux that keep enforcing offline, and a local fallback
+mode for when the internet is down.**
 
 [![License](https://img.shields.io/badge/license-MIT-3b82f6?style=flat-square)](LICENSE)
-[![Server](https://img.shields.io/badge/server-Go-00ADD8?style=flat-square&logo=go&logoColor=white)](server/)
-[![Agent](https://img.shields.io/badge/agent-Windows-0078D6?style=flat-square&logo=windows&logoColor=white)](agent/)
-[![Mobile](https://img.shields.io/badge/mobile-Android-3DDC84?style=flat-square&logo=android&logoColor=white)](mobile/)
-[![Built with](https://img.shields.io/badge/built%20with-Go_%7C_Flutter-02569B?style=flat-square&logo=flutter&logoColor=white)](https://flutter.dev)
+[![Rust](https://img.shields.io/badge/built%20with-Rust-B7410E?style=flat-square&logo=rust&logoColor=white)](Cargo.toml)
+[![Agent](https://img.shields.io/badge/agent-Windows_%7C_Linux-0078D6?style=flat-square&logo=windows&logoColor=white)](specs/agent.md)
 
-[**Quick Start**](#quick-start) · [Video](#video) · [Architecture](#architecture) · [API Reference](#api-reference) · [Issues](../../issues)
+[**Quick Start**](#quick-start) · [How it works](#how-it-works) · [Build](#build) · [Docs](#documentation) · [Issues](../../issues)
 
 </div>
 
 <br />
 
-## Screenshots
+## What it does
 
-<p align="center">
-  <img src="docs/assets/screenshots/dashboard.jpg" alt="Dashboard: blacklist / whitelist applications" width="200" />
-  <img src="docs/assets/screenshots/system.jpg" alt="System: fleet-wide power switch" width="200" />
-  <img src="docs/assets/screenshots/computers.jpg" alt="Computers: registered machines, lock and release" width="200" />
-  <img src="docs/assets/screenshots/settings.jpg" alt="Settings: server address and admin token" width="200" />
-</p>
-
----
-
-## Video
-
-<p align="center">
-  <a href="https://www.youtube.com/watch?v=CkksD9YpDVw">
-    <img src="docs/assets/video-thumbnail.jpg" alt="Guardian pe Windows: instalarea serverului și a agentului, pas cu pas" width="640" />
-  </a>
-  <br />
-  <a href="https://www.youtube.com/watch?v=CkksD9YpDVw"><b>▶ Watch on YouTube</b></a>: installing the server and the agent on Windows, step by step (in Romanian)
-</p>
-
----
+- **Profiles per room.** A profile is a mode plus a list of programs: *free* (nothing is closed), *blacklist*
+  (the listed programs are closed) or *whitelist* (everything else is closed; system programs are always
+  spared). Every room has an active profile; the teacher switches it with one click. A computer can have its own
+  exception (the teacher's desk on "Liber"), and computers without a room get the school default.
+- **Agents that act at once and keep going offline.** The agent sees every program start (ETW on Windows, the
+  proc connector on Linux) and closes a forbidden one within a second; a full check every 10 s catches the
+  rest. Without the server it keeps the last profile it got.
+- **A console for the teacher.** `guardian-console` connects to a server, or runs the server itself while it is
+  open. Rooms, profiles, computers, users and the enrollment codes are managed there.
+- **Local fallback mode.** When the server cannot be reached, a teacher switches a room's profile directly over
+  the school network (encrypted, mutually authenticated channel on port 11500). The switch is undone and
+  written to the audit log when the server is back.
+- **Accounts and roles.** Administrators manage everything; teachers control only their rooms.
 
 ## Quick Start
 
-Download `guardian-<version>.zip` from [Releases](https://github.com/nazdravan/guardian/releases)
-and unpack it:
+Download `guardian-<version>.zip` from the [releases](../../releases) and unpack it.
+
+### 1. Server
+
+- **Linux:** `cd server-linux && sudo ./install.sh` — a systemd service on port 8443 with a self-signed
+  certificate. The script prints the certificate SHA-256 and a bootstrap code.
+- **Windows (always on):** `server-windows/README.txt` — `guardian-server.exe service install`.
+- **On the teacher's PC, only while the console is open:** skip this step and choose *Run the server on this
+  computer* in the console.
+
+Create the first administrator: in the console (*Connect to a server*, then the bootstrap code) or
+`guardian-cli init --server https://SERVER:8443 --cert-sha256 SHA256 --code BOOTSTRAP --login admin` (the
+password is read from standard input).
+
+### 2. Console
+
+Run `console-windows/guardian-console.exe`, connect, create rooms and profiles, and give teachers their rooms.
+**Connection info…** creates an enrollment code and shows the exact install command for the agents.
+
+### 3. Agents
+
+- **Windows:** unpack `agent-windows/` on the student computer and run `guardian-setup.exe` as administrator
+  (fill in the server, the certificate SHA-256 and the code), or
+  `guardian-setup.exe install --server wss://SERVER:8443 --code CODE [--cert-sha256 SHA256]`.
+  It finds and, if you agree, removes Guardian 2.x.
+- **Linux:** `cd agent-linux && sudo ./install.sh wss://SERVER:8443 CODE [SHA256]`.
+
+The computer appears in the console, in the room of its code, and follows the room's profile.
+
+## How it works
 
 ```
-guardian-<version>/
-├── server-linux/                    # Linux server
-│   ├── guardian-server              # Server binary (linux/amd64)
-│   ├── server.env                   # Server config template
-│   ├── install.sh                   # Install as a systemd service
-│   ├── guardian-server.service
-│   ├── Dockerfile
-│   └── docker-compose.yml
-├── server-windows/                  # Server on the teacher's Windows PC
-│   ├── GuardianServer.exe           # GUI: runs the server while open, manage the class
-│   └── README.txt
-├── agent-windows/
-│   ├── Guardian.exe                 # Guardian Console: install, diagnose, edit whitelist
-│   ├── agent.env                    # Agent config template
-│   ├── Install-Guardian.bat         # Auto-detect arch and install agent
-│   ├── Uninstall-Guardian.bat       # Auto-detect arch and uninstall
-│   └── bin/                         # PowerShell installers + 32/64-bit agent
-├── agent-linux/
-│   ├── procsentinel-agent           # Agent binary (linux/amd64)
-│   ├── agent.env                    # Agent config template
-│   ├── install.sh / uninstall.sh
-│   └── guardian-agent.service
-└── guardian.apk                     # Mobile app (Android)
+                 guardian-server (gRPC + WebSocket, SQLite, TLS, port 8443)
+              ▲ wss (agents keep one connection)     ▲ gRPC (console, CLI)
+ ┌────────────┴───────────┐               ┌──────────┴──────────────┐
+ │ guardian-agent          │               │ guardian-console         │
+ │  └ guardian-worker      │◄──────────────┤ (or the server inside it)│
+ └─────────────────────────┘  LAN, only when the agent is offline:    │
+                              Noise channel, port 11500               │
 ```
 
-To build the archive yourself: `./scripts/package.sh` → `dist/guardian-<VERSION>.zip`.
+The server pushes the effective profile to each agent the moment it changes; the agent saves it and enforces it
+from boot, before any connection. Agents and consoles prove who they are with ed25519 keys created at
+enrollment. The full design is in [`specs/2026-11-17-rust-rewrite-design.md`](specs/2026-11-17-rust-rewrite-design.md).
 
-### 1. Server (Linux)
+## Build
 
-Copy `server-linux/` to your server, then rename and configure the env file:
+Rust 1.95 or newer:
 
-```bash
-cp server.env .env
+```sh
+cargo build --workspace
+cargo test --workspace --all-features
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 ```
 
-```env
-SERVER_ADDRESS=http://0.0.0.0:8080
-TOKEN=your_token_here
-ADMIN_TOKEN=your_admin_token_here
-```
+Windows release binaries are built for `x86_64-pc-windows-msvc` (server, CLI, 64-bit agent) and
+`i686-pc-windows-msvc` (32-bit agent, console, setup); CI builds them and `scripts/package.sh` packs the archive
+(`.github/workflows/release.yml`).
 
-Run it one of three ways:
+## Documentation
 
-```bash
-./guardian-server        # Option A — run directly
-sudo ./install.sh        # Option B — install as a systemd service
-docker compose up -d     # Option C — Docker (env is optional; pass vars via compose)
-```
-
-### Server (Windows, on the teacher's PC)
-
-Double-click `server-windows/GuardianServer.exe` and accept the administrator prompt. It
-generates the tokens, opens port 8080 in Windows Firewall for the local network, and runs
-the server while its window is open. Block apps and computers in the window; **Connection info…**
-shows the `SERVER_ADDRESS=http://<PC-NAME>:8080` line and `TOKEN` for `agent.env`, and the
-phone's address and `ADMIN_TOKEN`. When the window is closed, agents keep the last rules.
-Do not install an agent on the teacher's PC.
-
-### 2. Agent (Windows)
-
-Edit `agent.env` with your server details:
-
-```env
-SERVER_ADDRESS=your_server_address
-TOKEN=your_token_here
-```
-
-Double-click `Install-Guardian.bat` (auto-detects 32/64-bit and runs the right installer as admin). The installer prompts for an optional `IDENTITY` number to register the computer with the server. To remove it, double-click `Uninstall-Guardian.bat`.
-
-### Agent (Linux)
-
-Edit `agent-linux/agent.env`, then run `sudo ./install.sh` from that folder. It installs the
-agent to `/opt/guardian-agent/` as the `guardian-agent` systemd service. Review
-`/opt/guardian-agent/whitelist.txt` after the first start; `sudo ./uninstall.sh` removes it.
-
-### 3. Mobile app (Android)
-
-Install `guardian.apk`, open the app, go to **Settings**, and set the server address and admin token.
-
----
-
-## Architecture
-
-```
-+-----------+         +--------+         +-------+
-|  Mobile   | ------> | Server | <------ | Agent |
-| (Android) |  Admin  | (Linux)|  Client | (Win) |
-+-----------+  Token   +--------+  Token  +-------+
-                          |
-                       [SQLite]
-```
-
-The Android app talks to the server with the **admin** token; agents talk to it with the **client** token. The server keeps blocked apps, modes, computer registrations, and client entries in SQLite, with in-memory caches in front.
-
----
-
-## Modes
-
-| Mode | Behavior |
+| | |
 |---|---|
-| **blacklist** | Only processes in the block list are killed |
-| **whitelist** | All processes NOT in the allow list are killed (system processes excluded) |
-| **free** | No processes are killed (returned when the server is disabled or a computer is unblocked) |
+| [`specs/server.md`](specs/server.md) | the server: accounts, rooms, profiles, enrollment, the agent protocol, TLS |
+| [`specs/agent.md`](specs/agent.md) | the agent and worker: enforcement, offline state, install |
+| [`specs/console.md`](specs/console.md) | the teacher's console |
+| [`specs/local-fallback.md`](specs/local-fallback.md) | local fallback mode |
+| [`specs/setup.md`](specs/setup.md) | `guardian-setup` on Windows |
+| [`specs/api.md`](specs/api.md) | the gRPC API reference |
 
----
+Guardian 3.0 does not work with 2.x agents, servers or the Android app; the Android app comes back after 3.0. The
+2.x video walkthrough (in Romanian) is still on [YouTube](https://www.youtube.com/watch?v=CkksD9YpDVw).
 
-## API Reference
+## License
 
-All endpoints except `/health` require an `Authorization: Bearer <token>` header.
-
-### Client (TOKEN auth)
-
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/client/sync?identity={id}` | Agent sync — returns applications, mode, and client entries |
-
-### Admin (ADMIN_TOKEN auth)
-
-**Applications**
-
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/manage/applications` | List all applications |
-| POST | `/manage/applications` | Add application (name, mode) |
-| PUT | `/manage/applications` | Update application (name, enabled, mode) |
-| DELETE | `/manage/applications` | Remove application (name, mode) |
-| DELETE | `/manage/applications/reset` | Clear all applications |
-
-**Status**
-
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/status` | Get server enabled state and mode |
-| PUT | `/status` | Update enabled state and/or mode |
-| GET | `/info` | Server info (IP, port, version, status) |
-
-**Client Entries**
-
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/client` | List all client entries |
-| PUT | `/client` | Update a client entry (name, status) |
-
-**Computers**
-
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/manage/computers` | List computers with block status and last seen |
-| PUT | `/manage/computers` | Set computer blocked status (identity, blocked) |
-| DELETE | `/manage/computers/reset` | Unblock all computers |
-| PUT | `/manage/computers/block_all` | Block all computers |
-
-**Unauthenticated**
-
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/health` | Health check |
-
----
-
-## Remote Shutdown
-
-Setting the `power` client entry to `false` via the `/client` endpoint triggers a system shutdown on all connected agents. On Windows this uses the `InitiateSystemShutdownExW` API to force-close applications and power off the machine.
-
----
-
-## Configuration
-
-### Server `.env`
-
-| Variable | Description | Example |
-|---|---|---|
-| `SERVER_ADDRESS` | Listen address | `http://0.0.0.0:8080` |
-| `TOKEN` | Client/agent auth token | `your_token_here` |
-| `ADMIN_TOKEN` | Admin/mobile auth token | `your_admin_token_here` |
-
-### Agent `.env`
-
-| Variable | Description | Example |
-|---|---|---|
-| `SERVER_ADDRESS` | Server URL | `http://192.168.1.10:8080` |
-| `TOKEN` | Client auth token (must match server) | `your_token_here` |
-
----
-
-## Build Requirements
-
-- **Go 1.25+** for server and agent
-- **Flutter 3.x** for the mobile app
-- Agent Windows builds require PowerShell and `CGO_ENABLED=1`
+[MIT](LICENSE)

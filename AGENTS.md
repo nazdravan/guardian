@@ -4,131 +4,43 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-ProcSentinel is a process monitoring and control system with these components:
-- **Server** (Go) — REST API backend using SQLite, runs as a Linux systemd service; the code is the importable package `server/guardian`
-- **Guardian Server for Windows** (Go + lxn/walk) — `tools/server-gui/`: a GUI the teacher opens on their own PC; it runs the server in-process while the window is open and manages apps and computers from one screen. See `specs/2026-11-13-windows-server-gui-design.md`
-- **Agent** (Go) — Client-side process monitor/killer, runs as a Windows service (also supports Linux/macOS)
-- **Mobile** (Flutter/Dart) — Android management app called "Guardian"
-- **Guardian Console** (Go + lxn/walk) — Windows GUI in `tools/whitelist-gui/` for installing, diagnosing and updating the agent, and editing its local `whitelist.txt`
+Guardian 3.0 (formerly ProcSentinel) controls which programs run on the computers of a school class. It is
+written in Rust (branch `rust-rewrite`; the 2.x Go code was removed in stage 3c and lives in git history):
 
-## Build Commands
+- **Server** (`guardian-server`) — gRPC API + WebSocket hub for agents + SQLite; a Linux systemd service, a
+  Windows service, or embedded in the console
+- **Agent** (`guardian-agent` + `guardian-worker`) — Windows (32/64-bit) and Linux service that enforces the
+  computer's profile (blacklist/whitelist) and keeps doing so offline; the worker runs in the user's session
+- **Console** (`guardian-console`) — the teacher's egui window: remote or embedded server, rooms, profiles,
+  computers, users, enrollment, local fallback mode
+- **Setup** (`guardian-setup`) — Windows installer/diagnostics for the agent, window + command line
+- **CLI** (`guardian-cli`) — the gRPC API for scripts
+- **Mobile** (`mobile/`, Flutter) — the 2.x Android app; it does not work with 3.0 and is not in the release
+  archive until it is rewritten
 
-### Server
-```sh
-cd server && ./build.sh        # Builds binary and creates ../release/procsentinel-server.tar.gz
-```
+Design: [`specs/2026-11-17-rust-rewrite-design.md`](specs/2026-11-17-rust-rewrite-design.md). Per component:
+[`specs/server.md`](specs/server.md), [`specs/agent.md`](specs/agent.md), [`specs/console.md`](specs/console.md),
+[`specs/local-fallback.md`](specs/local-fallback.md), [`specs/setup.md`](specs/setup.md), API reference
+[`specs/api.md`](specs/api.md). Plans in `specs/plans/`.
 
-### Agent (Windows, requires PowerShell)
-```powershell
-./agent/build64.ps1            # 64-bit build → dist/agent/bin/agent/procsentinel-agent64.exe
-./agent/build32.ps1            # 32-bit build → dist/agent/bin/agent/procsentinel-agent32.exe
-```
-
-### Mobile
-```sh
-cd mobile && ./build.sh        # flutter build apk → ../release/guardian.apk
-```
-
-### Guardian Console (Windows, requires PowerShell)
-```powershell
-./tools/whitelist-gui/build.ps1   # 32-bit universal build → dist/agent/Guardian.exe
-./tools/whitelist-gui/test.ps1    # tests, including the window smoke test
-```
-Built as 32-bit on purpose so one binary runs on both 32- and 64-bit Windows;
-it detects the OS architecture at run time and installs the matching agent.
-See `specs/whitelist-gui.md`.
-
-### Release archive
-```sh
-./scripts/package.sh           # builds everything → dist/guardian-<VERSION>.zip (SKIP_APK=1 to skip Flutter)
-```
-Needs Go, zip and Flutter. All Go builds use `CGO_ENABLED=0` and cross-compile from any OS.
-GitHub Actions (`.github/workflows/release.yml`) runs this **only on push to `main`**; it
-publishes a GitHub Release only when `VERSION` names a version with no tag yet.
-
-### Flutter icon generation
-```sh
-cd mobile && flutter pub run flutter_launcher_icons
-```
-
-## Architecture
-
-### Server (`server/` — `main.go` + package `server/guardian`, ~1000 lines total)
-- `main.go` — Linux entry point: `.env` loading, `configFromEnv()`, listen address, graceful shutdown
-- `guardian/server.go` — `Server` struct, `Config`, `New`, `Handler`, `Close`
-- `guardian/routes.go` — chi router setup with CORS, route groups (unauthenticated, client auth, admin auth)
-- `guardian/handlers.go` — all HTTP handler methods
-- `guardian/db.go` — SQLite database init, migrations, CRUD operations, cache loading
-- `guardian/models.go` — request/response structs (Application, Computer, ClientEntry, etc.)
-- `guardian/middleware.go` — Bearer token auth middleware; tokens come from `Config`
-- `guardian/helpers.go` — utility functions (JSON writing, `LocalIP()`)
-- Tests: `cd server && go test ./...`
-
-### Guardian Server for Windows (`tools/server-gui/`, own module, imports `server` via `replace`)
-- `core/` — OS-independent, tested anywhere (`go test ./core`): `settings.go` (`%ProgramData%\Guardian Server\.env`, generated tokens), `runner.go` (starts/stops the embedded server, "port in use"), `client.go` (HTTP client on 127.0.0.1 with ADMIN_TOKEN, incl. the `power` entry), `view.go` (online rule, sorting, current-mode filter, row diff for flicker-free refresh, shutdown conditions, no-agent warning, Connection info texts), `firewall.go` (netsh args)
-- `main.go`, `window.go`, `connect.go`, `platform.go` — Windows only (walk, firewall rule, single-instance mutex); the window layout is described under "Window as built" in the design spec
-- Build: `./tools/server-gui/build.ps1` → `dist/server-windows/GuardianServer.exe` (32-bit); tests: `./tools/server-gui/test.ps1`
-- `Server` struct holds DB connection and in-memory caches (`appsCache`, `enabledCache`, `modeCache`, `clientCache`) with a `sync.RWMutex`
-- Uses `go-chi/chi` router and `modernc.org/sqlite` (pure Go, no CGO required)
-- Two auth tiers via Bearer tokens: `TOKEN` (client/agent endpoints) and `ADMIN_TOKEN` (management endpoints)
-- SQLite tables: `applications`, `server`, `client`, `computers`
-
-### Agent (`agent/main.go` + platform-specific files)
-- Polls server via `/client/sync` (10s console mode, 20s service mode configurable via `CHECK_INTERVAL`), checks processes every 1s
-- Platform-specific process listing/killing: `tasklist`/`taskkill` on Windows, `ps`/`pkill` on Unix
-- Windows service support via `service_windows.go`, `shutdown_windows.go`, `main_windows.go`
-- Non-Windows stubs: `main_stub.go`, `service_stub.go`
-- Special commands: `force_poweroff`, `force_shutdown`
-
-### Mobile (`mobile/lib/`)
-- 4 screens: `HomeScreen` (blocked apps), `SystemScreen`, `ComputersScreen`, `SettingsScreen`
-- `SettingsService` handles all HTTP calls and local persistence via `shared_preferences`
-
-### Landing page (`docs/`)
-- Static marketing landing page — single self-contained `docs/index.html`
-- Styled with Tailwind via CDN (config inlined in a `<script>`), fonts from Google Fonts (Space Grotesk / Inter / JetBrains Mono)
-- Dark "terminal" aesthetic with an animated "fleet console" hero (vanilla JS, respects `prefers-reduced-motion`)
-- Brand assets in `docs/assets/` (also used by `README.md`); served directly via GitHub Pages from the `docs/` folder
-- App screenshots in `docs/assets/screenshots/` (720px-wide JPEGs of the Android app, v2.1.0), shown in the landing's `#app` section and in `README.md`; the section's captions are i18n keys `app_*`/`shot_*` in all five languages
-- Video walkthrough (YouTube `CkksD9YpDVw`, Windows install, in Romanian): embedded in its own `#video` section between the hero and `#features` via `youtube-nocookie.com` (i18n keys `video_*`) and linked from `README.md`'s Video section via `docs/assets/video-thumbnail.jpg` (YouTube thumbnail with a play button drawn on it)
-- Preview locally: `cd docs && python3 -m http.server 8099` → http://localhost:8099
-
-### API Endpoints
-- `/client/sync` — agent fetches apps, mode, and client entries (TOKEN auth)
-- `/manage/applications` — CRUD for blocked apps (ADMIN_TOKEN auth)
-- `/manage/applications/reset` — clear all applications (ADMIN_TOKEN auth)
-- `/status` — get/set server enabled state and mode (ADMIN_TOKEN auth)
-- `/info` — server info (ADMIN_TOKEN auth)
-- `/client` — get/set client entries like power (ADMIN_TOKEN auth)
-- `/manage/computers` — computer management (ADMIN_TOKEN auth)
-- `/manage/computers/reset` — unblock all computers (ADMIN_TOKEN auth)
-- `/manage/computers/block_all` — block all computers (ADMIN_TOKEN auth)
-- `/health` — health check (unauthenticated)
-
-## Guardian 3.0 (Rust, in progress)
-
-A clean rewrite on branch `rust-rewrite` (spec: `specs/2026-11-17-rust-rewrite-design.md`; server:
-`specs/server.md`; agent: `specs/agent.md`; console: `specs/console.md`; local fallback:
-`specs/local-fallback.md`; plans in `specs/plans/`).
-The Go code above stays until the 3.0 release. Stage 1 (server + CLI), stage 2 (agent + worker, Linux and
-Windows), stage 3a (the egui console) and stage 3b (local fallback mode: Noise channel on port 11500, LAN
-discovery, local room-profile switch) are done; stage 3c (`guardian-setup`, release archive, removing the Go
-code) comes next.
+## Workspace
 
 Cargo workspace at the repo root (`Cargo.toml`, `crates/*`, `proto/`), Rust edition 2024, MSRV 1.95 (egui 0.37):
 
 | Crate | What |
 |---|---|
 | `crates/guardian-proto` | `proto/guardian/v1/*.proto` compiled with `protox` in `build.rs` (no `protoc`) |
-| `crates/guardian-core` | policy, protected processes, kill/allow decision, ed25519 keys, codes, feature registry |
+| `crates/guardian-core` | policy, local fallback rules, protected processes, kill/allow decision, ed25519 keys, codes, feature registry |
 | `crates/guardian-server` | server library + `guardian-server` binary; feature `testing` = `TestServer`, `SimAgent` |
 | `crates/guardian-client` | TLS with certificate pin, gRPC channel, token interceptor, WebSocket connector |
 | `crates/guardian-local` | local fallback channel: Noise IK over TCP with the ed25519 keys, signed UDP discovery |
 | `crates/guardian-cli` | `guardian-cli` |
-| `crates/guardian-platform` | OS access behind the `Platform` trait (Linux `/proc` + proc connector + `loginctl`, Windows ToolHelp + ETW + WTS), local IPC; feature `testing` = `FakePlatform` |
-| `crates/guardian-agent` | agent library + `guardian-agent` (`enroll`, `run`, `status`, Windows `service`) |
-| `crates/guardian-worker` | `guardian-worker`, started by the agent in the user session (stage 2: hello + ping/pong) |
-| `crates/guardian-console` | `guardian-console` (egui): remote or embedded server, rooms/profiles/computers/users, local fallback mode; feature `testing` = `FakeBackend` for `egui_kittest` |
+| `crates/guardian-platform` | OS access behind the `Platform` trait (Linux `/proc` + proc connector + `loginctl`, Windows ToolHelp + ETW + WTS), local IPC, Windows elevation/console helpers; feature `testing` = `FakePlatform` |
+| `crates/guardian-agent` | agent library + `guardian-agent` (`enroll`, `run`, `status`, Windows `service`), local fallback listener |
+| `crates/guardian-worker` | `guardian-worker`, started by the agent in the user session |
+| `crates/guardian-console` | `guardian-console` (egui); feature `testing` = `FakeBackend` for `egui_kittest` |
+| `crates/guardian-setup` | `guardian-setup` (egui + CLI, Windows); feature `testing` = `FakeHost` |
+| `crates/guardian-applog` | log rotation and the panic hook of the desktop programs |
 
 ```sh
 cargo build --workspace
@@ -138,60 +50,66 @@ cargo fmt --all --check
 cargo deny check
 ```
 
-The console's UI tests need `--features testing` (`cargo test -p guardian-console --features testing`; the
-workspace command above has it via `--all-features`); its `real_embedded` and `real_fallback` (~75 s) tests need the binaries built.
-Linux-only agent tests run in a container from macOS (repo mounted at `/w`, `CARGO_TARGET_DIR=/w/target/linux`,
-image = `rust` + clippy/rustfmt); the real proc connector test needs
-`--cap-add NET_ADMIN --network host --pid host` and `-- --include-ignored`. The full real run:
-`cargo build --workspace --bins && cargo test -p guardian-agent --test real_linux`. Windows code is checked
-locally with `cargo clippy --target x86_64-pc-windows-gnu` / `i686-pc-windows-gnu`; its tests (incl. ETW) run in
-the CI `windows` job.
-
-Rules: the `.proto` files are the contract (field numbers never change); `guardian-core` is the only place
-policy logic lives; libraries are `#![forbid(unsafe_code)]`; no `unwrap`/`expect`/`panic` outside tests
-(the single exception is `guardian_core::random::random_bytes`); dependencies must pass `cargo deny`
-(no GPL/MPL); `unsafe` only in `guardian-platform/src/windows/ffi_*.rs`. Linux packaging:
-`packaging/server-linux/`, `packaging/agent-linux/`. CI: `.github/workflows/rust.yml`.
-
-## Key Dependencies
-
-- **Server Go:** `go-chi/chi` (router), `go-chi/cors`, `modernc.org/sqlite` (pure Go SQLite)
-- **Agent Go:** `golang.org/x/sys` (Windows APIs)
-- **Flutter:** `http`, `shared_preferences`
-
-## Deployment
-
-### Packaging
-`dist/` is build output only and is **not tracked by git**. The templates and install scripts live
-in `packaging/`; `scripts/package.sh` copies them next to the freshly built binaries:
-```
-guardian-<VERSION>.zip
-└── guardian-<VERSION>/
-    ├── server-linux/    # guardian-server (linux/amd64), server.env, install.sh, systemd unit, Docker files
-    ├── server-windows/  # GuardianServer.exe (GUI that runs the server on the teacher's PC), README.txt
-    ├── agent-windows/   # Guardian.exe (console), Install/Uninstall .bat, agent.env,
-    │                    # bin/ (Install/Uninstall-Agent32/64.ps1, agent/procsentinel-agent32/64.exe)
-    ├── agent-linux/     # procsentinel-agent (linux/amd64), agent.env, install.sh, uninstall.sh,
-    │                    # guardian-agent.service
-    └── guardian.apk     # Mobile app, signed with the release keystore from GitHub Secrets
-```
-`VERSION` (repo root) is the release version; it is also the APK's `versionName`, and the CI
-run number its `versionCode`. APK signing secrets: `ANDROID_KEYSTORE_BASE64`,
-`ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`.
-
-Server installs to `/usr/local/bin/guardian/` as the `guardian-server` systemd service; the Linux
-agent installs to `/opt/guardian-agent/` as `guardian-agent`. Both install scripts write `.env`
-only on first install, so an upgrade keeps the configured tokens. Agent and server both read `.env` files for configuration (`SERVER_ADDRESS`, `TOKEN`, `ADMIN_TOKEN`).
+- UI tests need `--features testing` (`cargo test -p guardian-console --features testing`,
+  `cargo test -p guardian-setup --features testing`); `--all-features` above covers them. The console's
+  `real_embedded` and `real_fallback` (~75 s) tests need `cargo build --workspace --bins` first.
+- Linux-only tests run in a container from macOS (repo mounted at `/w`, `CARGO_TARGET_DIR=/w/target/linux`,
+  image = `rust` + clippy/rustfmt); the real proc connector test needs `--cap-add NET_ADMIN --network host
+  --pid host` and `-- --include-ignored`. The full real run: `cargo build --workspace --bins && cargo test -p
+  guardian-agent --test real_linux`.
+- Windows code is checked locally with `cargo clippy --target x86_64-pc-windows-gnu` / `i686-pc-windows-gnu`;
+  its tests (incl. ETW and `guardian-setup`'s `winhost`) run in the CI `windows` job.
+- Scripts: `bash scripts/test-package.sh` (archive layout), `python3 -I scripts/check-workflows.py`,
+  `bash scripts/check-no-go.sh --docs`, `bash scripts/check-docs.sh` (links and the landing page's i18n keys).
 
 ## Rules
 
-- **Always update specs on code changes:** After any code change, update the corresponding files in `specs/` (`server.md`, `agent.md`, `api.md`) and this `AGENTS.md` to keep documentation in sync. This includes API changes, schema changes, config changes, file structure changes, and build output paths.
+- The `.proto` files are the contract: field numbers never change.
+- `guardian-core` is the only place policy logic lives (also the local fallback rules).
+- Libraries and binaries are `#![forbid(unsafe_code)]`; `unsafe` only in `guardian-platform/src/windows/ffi_*.rs`,
+  with a `// SAFETY:` comment on each block.
+- No `unwrap`/`expect`/`panic` outside tests (the single exception is `guardian_core::random::random_bytes`);
+  anything from the network must never panic.
+- Dependencies must pass `cargo deny` (no GPL/MPL).
+- System tools (`netsh`, `icacls`, `powershell`, …) are started by absolute path under `%SystemRoot%\System32`.
+- **Update the specs with the code:** after any change, update the matching file in `specs/` (`server.md`,
+  `agent.md`, `console.md`, `local-fallback.md`, `setup.md`, `api.md`) and this `AGENTS.md` (file structure,
+  commands, build output paths).
 
-## Notes
+## Release
 
-- Automated tests exist for the server (`server/`), Guardian Server for Windows (`tools/server-gui/core`) and Guardian Console (`tools/whitelist-gui`); the agent and mobile app have none
-- `tools/whitelist-gui/builtin.go` mirrors the hardcoded protected-process list in `agent/main.go` and must be kept in sync by hand
-- `tools/mkico` is a separate module (it needs `golang.org/x/image` only to build the console's icon)
-- Server and agent have separate `go.mod` files (modules `server` and `agent`)
-- Server uses pure Go SQLite (`modernc.org/sqlite`) — CGO is NOT required for server builds
-- The agent has no cgo code; `build*.ps1` set `CGO_ENABLED=1`, but `scripts/package.sh` builds it with `CGO_ENABLED=0`
+`VERSION` (repo root) is the release version and matches `version` in `Cargo.toml`. `dist/` is build output and
+not tracked. `scripts/package.sh --linux DIR --win64 DIR --win32 DIR [--out DIR]` packs already built binaries
+with the templates in `packaging/`:
+
+```
+guardian-<VERSION>.zip
+└── guardian-<VERSION>/
+    ├── server-linux/    # guardian-server, guardian-cli, guardian-server.service, install.sh
+    ├── server-windows/  # guardian-server.exe, guardian-cli.exe (64-bit), README.txt
+    ├── console-windows/ # guardian-console.exe (32-bit), README.txt
+    ├── agent-windows/   # guardian-setup.exe (32-bit), README.txt, bin/x64/ and bin/x86/ (agent + worker)
+    └── agent-linux/     # guardian-agent, guardian-worker, guardian-agent.service, install.sh, uninstall.sh
+```
+
+`.github/workflows/release.yml` runs **only on push to `main`**: a `linux` and a `windows` job build and test,
+`package` packs the zip and publishes a GitHub Release only when `VERSION` names a version with no tag yet.
+Windows binaries are signed (Authenticode) only when the `WINDOWS_CERT_PFX_BASE64` / `WINDOWS_CERT_PASSWORD`
+secrets exist. `.github/workflows/rust.yml` runs the checks on every push touching Rust, packaging or scripts.
+
+Install paths: the Linux server binary `/usr/local/bin/guardian-server` (data `/var/lib/guardian`), the Linux
+agent `/opt/guardian-agent/` (config `/etc/guardian-agent/agent.toml`, data `/var/lib/guardian-agent`), the
+Windows agent `C:\Program Files\Guardian` (data `%ProgramData%\Guardian Agent`), the Windows server data
+`%ProgramData%\Guardian Server`, the embedded server data `%ProgramData%\Guardian\server`.
+
+## Landing page (`docs/`)
+
+- Static marketing page: one self-contained `docs/index.html`, Tailwind via CDN (config inlined), fonts from
+  Google Fonts (Space Grotesk / Inter / JetBrains Mono), dark "terminal" look with an animated hero (vanilla JS,
+  respects `prefers-reduced-motion`); served by GitHub Pages from `docs/`
+- Texts are i18n keys in five languages (en, ro, ru, es, de) in the `I18N` object; `scripts/check-docs.sh`
+  checks every key exists in all five
+- Brand assets in `docs/assets/` (also used by `README.md`); the `#app` section's screenshots are the 2.x Android
+  app (`docs/assets/screenshots/`), the `#video` section the 2.x Windows install (YouTube `CkksD9YpDVw`, in
+  Romanian), both labelled as 2.x
+- Preview locally: `cd docs && python3 -m http.server 8099` → http://localhost:8099
