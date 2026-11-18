@@ -22,6 +22,7 @@ fn config_roundtrips_and_is_private() {
         server: "wss://srv:8443".into(),
         cert_sha256: Some("ab".repeat(32)),
         computer_id: Some(7),
+        local_port: Some(11600),
     };
     c.save(&p.config).unwrap();
     assert_eq!(AgentConfig::load(&p.config).unwrap(), c);

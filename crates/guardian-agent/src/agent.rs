@@ -1,10 +1,11 @@
 //! The agent: stored state → engine → server connection, and the rules for what
 //! arrives (newer states only, each command answered once).
 
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use guardian_core::keys::KeyPair;
+use guardian_core::keys::{KeyPair, PublicKey};
 use guardian_platform::Platform;
 use guardian_proto::v1::{
     AgentState, CommandEnvelope, CommandResult, LocalReply, LocalRequest, LocalStore, ResultStatus,
@@ -16,6 +17,7 @@ use tokio::task::JoinHandle;
 use crate::config::{AgentConfig, AgentPaths};
 use crate::conn::{self, ConnConfig, ConnEvent, Connection};
 use crate::engine::{Engine, EngineConfig, EngineMode, Policy};
+use crate::listener::{Listener, LocalOptions, LocalService};
 use crate::local;
 use crate::store::{self, SeenIds, StoreError};
 use crate::worker::{WorkerManager, WorkerOptions};
@@ -58,6 +60,8 @@ pub struct AgentOptions {
     /// Without the server this long, local requests are accepted
     /// ([`guardian_core::local::OFFLINE_AFTER`] in production).
     pub offline_after: Duration,
+    /// The local fallback listener (`None` = off).
+    pub local: Option<LocalOptions>,
 }
 
 impl std::fmt::Debug for AgentOptions {
@@ -101,10 +105,11 @@ pub async fn enroll(
     code: &str,
     platform: &dyn Platform,
 ) -> Result<u64, AgentError> {
-    if let Ok(AgentConfig {
+    let previous = AgentConfig::load(&paths.config).ok();
+    if let Some(AgentConfig {
         computer_id: Some(id),
         ..
-    }) = AgentConfig::load(&paths.config)
+    }) = previous
     {
         return Err(AgentError::AlreadyEnrolled(id));
     }
@@ -115,6 +120,7 @@ pub async fn enroll(
         server: server.to_string(),
         cert_sha256: pin.map(str::to_string),
         computer_id: Some(id),
+        local_port: previous.and_then(|c| c.local_port),
     }
     .save(&paths.config)?;
     // State and command ids of an earlier enrollment must not carry over.
@@ -144,9 +150,71 @@ pub struct AgentHandle {
     worker: Option<WorkerManager>,
     stop: watch::Sender<bool>,
     task: JoinHandle<()>,
+    local: Arc<LocalCore>,
+    listener: Option<Listener>,
+}
+
+/// What local fallback requests need: shared by the handle and the listener.
+struct LocalCore {
+    live: Arc<Mutex<Live>>,
+    engine: Engine,
+    conn: Arc<Connection>,
     paths: AgentPaths,
     computer_id: u64,
     offline_after: Duration,
+}
+
+impl LocalService for LocalCore {
+    fn request(&self, console_id: i64, req: LocalRequest) -> LocalReply {
+        let offline_for = self.conn.offline_for();
+        let (reply, changed) = with(&self.live, |l| {
+            let ctx = local::Ctx {
+                stored: &l.stored,
+                online: l.online,
+                offline_for,
+                offline_after: self.offline_after,
+                revoked: l.revoked,
+                computer_id: self.computer_id,
+                capabilities: CAPABILITIES,
+            };
+            let (reply, changed) = local::handle(&ctx, &mut l.local, console_id, &req, unix_now());
+            let changed =
+                changed.then(|| (l.local.clone(), local::effective_state(&l.stored, &l.local)));
+            (reply, changed)
+        });
+        if let Some((saved, effective)) = changed {
+            save_local(&self.paths, &saved);
+            let p = Policy::from_state(&effective);
+            tracing::info!(
+                "local fallback: console {console_id} set profile {:?}",
+                p.profile.name
+            );
+            self.engine.set_policy(p);
+        }
+        reply
+    }
+
+    fn trusted(&self) -> Vec<(i64, PublicKey)> {
+        with(&self.live, |l| {
+            l.stored
+                .consoles
+                .iter()
+                .filter_map(|c| {
+                    PublicKey::from_bytes(&c.public_key)
+                        .ok()
+                        .map(|k| (c.console_id, k))
+                })
+                .collect()
+        })
+    }
+
+    fn online(&self) -> bool {
+        with(&self.live, |l| l.online)
+    }
+
+    fn computer_id(&self) -> u64 {
+        self.computer_id
+    }
 }
 
 impl std::fmt::Debug for AgentHandle {
@@ -190,32 +258,13 @@ impl AgentHandle {
     /// Answers a console's request in local fallback mode (the listener's only
     /// entry point; the console was authenticated by the channel).
     pub fn local_request(&self, console_id: i64, req: LocalRequest) -> LocalReply {
-        let offline_for = self.conn.offline_for();
-        let (reply, changed) = with(&self.live, |l| {
-            let ctx = local::Ctx {
-                stored: &l.stored,
-                online: l.online,
-                offline_for,
-                offline_after: self.offline_after,
-                revoked: l.revoked,
-                computer_id: self.computer_id,
-                capabilities: CAPABILITIES,
-            };
-            let (reply, changed) = local::handle(&ctx, &mut l.local, console_id, &req, unix_now());
-            let changed =
-                changed.then(|| (l.local.clone(), local::effective_state(&l.stored, &l.local)));
-            (reply, changed)
-        });
-        if let Some((saved, effective)) = changed {
-            save_local(&self.paths, &saved);
-            let p = Policy::from_state(&effective);
-            tracing::info!(
-                "local fallback: console {console_id} set profile {:?}",
-                p.profile.name
-            );
-            self.engine.set_policy(p);
-        }
-        reply
+        self.local.request(console_id, req)
+    }
+
+    /// The TCP and UDP addresses of the local fallback listener (`None` = off
+    /// or the port was taken).
+    pub fn local_addrs(&self) -> Option<(SocketAddr, SocketAddr)> {
+        self.listener.as_ref().map(Listener::addrs)
     }
 
     /// The engine (the worker manager needs it).
@@ -225,6 +274,10 @@ impl AgentHandle {
 
     /// Stops the connection and the engine.
     pub async fn shutdown(self) {
+        if let Some(l) = self.listener {
+            l.shutdown().await;
+        }
+        drop(self.local);
         let _ = self.stop.send(true);
         let _ = self.task.await;
         if let Some(w) = self.worker {
@@ -243,6 +296,7 @@ pub async fn run(opts: AgentOptions) -> Result<AgentHandle, AgentError> {
     let cfg = AgentConfig::load(&opts.paths.config).map_err(|_| AgentError::NotEnrolled)?;
     let computer_id = cfg.computer_id.ok_or(AgentError::NotEnrolled)?;
     let key: KeyPair = store::load_or_create_key(&opts.paths.key())?;
+    let listener_key = KeyPair::from_seed(&key.seed());
     // A state saved under another enrollment (another server, or this computer
     // enrolled again) is not ours: its version numbers mean nothing here.
     let stored = store::load_state(&opts.paths.state())
@@ -315,6 +369,18 @@ pub async fn run(opts: AgentOptions) -> Result<AgentHandle, AgentError> {
     let worker = opts
         .worker
         .map(|w| WorkerManager::spawn(opts.platform.clone(), w, engine.clone()));
+    let local = Arc::new(LocalCore {
+        live: live.clone(),
+        engine: engine.clone(),
+        conn: conn.clone(),
+        paths: opts.paths.clone(),
+        computer_id,
+        offline_after: opts.offline_after,
+    });
+    let listener = match opts.local {
+        Some(o) => Listener::start(o, listener_key, local.clone()).await,
+        None => None,
+    };
     Ok(AgentHandle {
         live,
         engine,
@@ -322,9 +388,8 @@ pub async fn run(opts: AgentOptions) -> Result<AgentHandle, AgentError> {
         worker,
         stop,
         task,
-        paths: opts.paths.clone(),
-        computer_id,
-        offline_after: opts.offline_after,
+        local,
+        listener,
     })
 }
 

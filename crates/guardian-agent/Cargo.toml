@@ -10,6 +10,7 @@ clap.workspace = true
 futures-util.workspace = true
 guardian-client.workspace = true
 guardian-core.workspace = true
+guardian-local.workspace = true
 guardian-platform.workspace = true
 guardian-proto.workspace = true
 prost.workspace = true

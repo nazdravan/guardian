@@ -7,6 +7,7 @@ mod agent;
 pub mod config;
 pub mod conn;
 pub mod engine;
+mod listener;
 pub mod local;
 pub mod store;
 pub mod worker;
@@ -14,3 +15,4 @@ pub mod worker;
 pub use agent::{
     AGENT_VERSION, AgentError, AgentHandle, AgentOptions, AgentStatus, CAPABILITIES, enroll, run,
 };
+pub use listener::LocalOptions;

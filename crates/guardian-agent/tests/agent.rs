@@ -34,6 +34,7 @@ fn opts(paths: &AgentPaths, f: &Arc<FakePlatform>) -> AgentOptions {
         backoff_min: Duration::from_millis(100),
         worker: None,
         offline_after: guardian_core::local::OFFLINE_AFTER,
+        local: None,
     }
 }
 
@@ -155,6 +156,7 @@ async fn first_boot_without_server_uses_default_lesson() {
         server: "ws://127.0.0.1:1".into(),
         cert_sha256: None,
         computer_id: Some(1),
+        local_port: None,
     }
     .save(&paths.config)
     .unwrap();

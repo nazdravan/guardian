@@ -2061,6 +2061,7 @@ dependencies = [
  "futures-util",
  "guardian-client",
  "guardian-core",
+ "guardian-local",
  "guardian-platform",
  "guardian-proto",
  "guardian-server",

@@ -10,7 +10,7 @@ use guardian_agent::config::{AgentConfig, AgentPaths};
 use guardian_agent::engine::{EngineConfig, Policy};
 use guardian_agent::store::{self, SeenIds};
 use guardian_agent::worker::WorkerOptions;
-use guardian_agent::{AgentError, AgentOptions};
+use guardian_agent::{AgentError, AgentOptions, LocalOptions};
 use guardian_platform::ipc::IpcEndpoint;
 
 #[cfg(windows)]
@@ -137,13 +137,23 @@ pub async fn run_until(
     ready: impl FnOnce(),
     stop: impl std::future::Future<Output = ()>,
 ) -> Result<(), AgentError> {
+    let paths = cli.paths();
+    let port = AgentConfig::load(&paths.config)
+        .map(|c| c.local_port())
+        .unwrap_or(guardian_core::local::DEFAULT_LOCAL_PORT);
+    let local = (port != 0).then(|| LocalOptions {
+        tcp: std::net::SocketAddr::from(([0, 0, 0, 0], port)),
+        udp: std::net::SocketAddr::from(([0, 0, 0, 0], port)),
+        limits: guardian_local::channel::Limits::default(),
+    });
     let h = guardian_agent::run(AgentOptions {
-        paths: cli.paths(),
+        paths,
         platform: guardian_platform::current(),
         engine: EngineConfig::default(),
         backoff_min: Duration::from_secs(1),
         worker: worker_options(),
         offline_after: guardian_core::local::OFFLINE_AFTER,
+        local,
     })
     .await?;
     ready();
@@ -195,6 +205,24 @@ fn status(paths: &AgentPaths) -> Result<(), AgentError> {
     }
     println!("profile: {} (id {})", p.profile.name, p.profile.id.0);
     println!("seen commands: {}", SeenIds::load(&paths.seen()).len());
+    match cfg.local_port() {
+        0 => println!("local fallback: off"),
+        port => println!("local fallback: port {port} (TCP and UDP)"),
+    }
+    if let Some(l) = store::load_local(&paths.local()) {
+        if let Some(ov) = l.r#override {
+            println!(
+                "local switch: profile {} in room {} (undone when the server is back)",
+                ov.profile_id, ov.room_id
+            );
+        }
+        if !l.journal.is_empty() {
+            println!(
+                "local actions not yet sent to the server: {}",
+                l.journal.len()
+            );
+        }
+    }
     Ok(())
 }
 

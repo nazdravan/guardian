@@ -15,9 +15,19 @@ pub struct AgentConfig {
     pub cert_sha256: Option<String>,
     /// Set by `enroll`.
     pub computer_id: Option<u64>,
+    /// TCP and UDP port of the local fallback listener; missing =
+    /// [`guardian_core::local::DEFAULT_LOCAL_PORT`], `0` = off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_port: Option<u16>,
 }
 
 impl AgentConfig {
+    /// The local fallback port (`0` = off).
+    pub fn local_port(&self) -> u16 {
+        self.local_port
+            .unwrap_or(guardian_core::local::DEFAULT_LOCAL_PORT)
+    }
+
     /// Reads the file.
     pub fn load(path: &Path) -> Result<AgentConfig, StoreError> {
         let text = std::fs::read_to_string(path).map_err(|e| StoreError::io(path, e))?;

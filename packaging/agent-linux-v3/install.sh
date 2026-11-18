@@ -5,6 +5,11 @@
 #   sudo ./install.sh wss://server:8443 ENROLL-CODE [CERT_SHA256]
 #
 # Running it again upgrades the binaries and never re-enrolls.
+#
+# Local fallback mode: the agent listens on TCP and UDP port 11500 (set
+# `local_port = N` in agent.toml, `0` = off). Most Linux desktops have no
+# firewall; with ufw or firewalld, allow 11500/tcp and 11500/udp from the
+# school network only.
 set -eu
 
 HERE=$(cd "$(dirname "$0")" && pwd)
