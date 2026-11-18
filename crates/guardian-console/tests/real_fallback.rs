@@ -267,14 +267,22 @@ async fn real_agent_follows_the_console_while_the_server_is_down() {
         );
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
-    let db = s.open_db_read_only().await;
-    let rows: Vec<(String,)> = sqlx::query_as(
-        "SELECT action FROM audit_log WHERE source = 'local' AND action = 'local.set_profile'",
-    )
-    .fetch_all(&db)
-    .await
-    .unwrap();
-    assert!(!rows.is_empty(), "no local audit row");
+    // The audit batcher writes shortly after the ack.
+    let end = Instant::now() + Duration::from_secs(5);
+    loop {
+        let db = s.open_db_read_only().await;
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT action FROM audit_log WHERE source = 'local' AND action = 'local.set_profile'",
+        )
+        .fetch_all(&db)
+        .await
+        .unwrap();
+        if !rows.is_empty() {
+            break;
+        }
+        assert!(Instant::now() < end, "no local audit row");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
     #[cfg(target_os = "linux")]
     {
         let exe = d.path().join("guardian-test-other");
