@@ -78,16 +78,28 @@ async fn console_embedded_server_drives_a_real_agent() {
     });
     let evs = c
         .until(
-            |e| matches!(e, Event::Embedded(EmbeddedState::Running { .. } | EmbeddedState::Failed { .. })),
+            |e| {
+                matches!(
+                    e,
+                    Event::Embedded(EmbeddedState::Running { .. } | EmbeddedState::Failed { .. })
+                )
+            },
             "the embedded server",
         )
         .await;
-    let Some(Event::Embedded(EmbeddedState::Running { cert_sha256: pin, .. })) = evs.last().cloned()
+    let Some(Event::Embedded(EmbeddedState::Running {
+        cert_sha256: pin, ..
+    })) = evs.last().cloned()
     else {
         panic!("{evs:?}")
     };
     c.until(
-        |e| matches!(e, Event::Connection(ConnState::NeedsLogin { can_init: true })),
+        |e| {
+            matches!(
+                e,
+                Event::Connection(ConnState::NeedsLogin { can_init: true })
+            )
+        },
         "first-admin prompt",
     )
     .await;
@@ -96,7 +108,8 @@ async fn console_embedded_server_drives_a_real_agent() {
         login: "admin".into(),
         password: Secret::new("admin-password-1"),
     });
-    c.until(|e| matches!(e, Event::LoggedIn(_)), "logged in").await;
+    c.until(|e| matches!(e, Event::LoggedIn(_)), "logged in")
+        .await;
 
     // 2. Room, blocked game in "Lecție", a room code.
     c.b.send(Action::CreateRoom {

@@ -108,11 +108,12 @@ cd mobile && flutter pub run flutter_launcher_icons
 ## Guardian 3.0 (Rust, in progress)
 
 A clean rewrite on branch `rust-rewrite` (spec: `specs/2026-11-17-rust-rewrite-design.md`; server:
-`specs/server-v3.md`; agent: `specs/agent-v3.md`; plans in `specs/plans/`). The Go code above stays until
-the 3.0 release. Stage 1 (server + CLI) and stage 2 (agent + worker, Linux and Windows) are done; the egui
-console, local fallback mode and `guardian-setup` (stage 3) come next.
+`specs/server-v3.md`; agent: `specs/agent-v3.md`; console: `specs/console-v3.md`; plans in `specs/plans/`).
+The Go code above stays until the 3.0 release. Stage 1 (server + CLI), stage 2 (agent + worker, Linux and
+Windows) and stage 3a (the egui console) are done; stage 3b (local fallback mode) and 3c (`guardian-setup`,
+release archive, removing the Go code) come next.
 
-Cargo workspace at the repo root (`Cargo.toml`, `crates/*`, `proto/`), Rust edition 2024, MSRV 1.88:
+Cargo workspace at the repo root (`Cargo.toml`, `crates/*`, `proto/`), Rust edition 2024, MSRV 1.95 (egui 0.37):
 
 | Crate | What |
 |---|---|
@@ -124,6 +125,7 @@ Cargo workspace at the repo root (`Cargo.toml`, `crates/*`, `proto/`), Rust edit
 | `crates/guardian-platform` | OS access behind the `Platform` trait (Linux `/proc` + proc connector + `loginctl`, Windows ToolHelp + ETW + WTS), local IPC; feature `testing` = `FakePlatform` |
 | `crates/guardian-agent` | agent library + `guardian-agent` (`enroll`, `run`, `status`, Windows `service`) |
 | `crates/guardian-worker` | `guardian-worker`, started by the agent in the user session (stage 2: hello + ping/pong) |
+| `crates/guardian-console` | `guardian-console` (egui): remote or embedded server, rooms/profiles/computers/users; feature `testing` = `FakeBackend` for `egui_kittest` |
 
 ```sh
 cargo build --workspace
@@ -133,6 +135,8 @@ cargo fmt --all --check
 cargo deny check
 ```
 
+The console's UI tests need `--features testing` (`cargo test -p guardian-console --features testing`; the
+workspace command above has it via `--all-features`); its `real_embedded` test needs the binaries built.
 Linux-only agent tests run in a container from macOS (repo mounted at `/w`, `CARGO_TARGET_DIR=/w/target/linux`,
 image = `rust` + clippy/rustfmt); the real proc connector test needs
 `--cap-add NET_ADMIN --network host --pid host` and `-- --include-ignored`. The full real run:
