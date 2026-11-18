@@ -2,7 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [3.0.0]
+
+Guardian 3.0 is a rewrite in Rust with a new architecture; it does not talk to 2.x agents, servers or the
+Android app.
+
+### Server
+- gRPC API (`Auth`, `Admin`, `Control`, `Watch`) and a WebSocket hub that agents keep open, on one TLS port (8443)
+- Accounts with roles (administrator, teacher), rooms, profiles per room (free / blacklist / whitelist), a
+  per-computer exception and a school default; enrollment codes for agents and consoles; audit log
+- Runs as a systemd service on Linux, a Windows service, or inside the teacher's console
+
+### Agent
+- Windows (32 and 64 bit) and Linux; process starts seen at once (ETW / proc connector) plus a full check every
+  10 s; protected system programs are recognised by name **and** location
+- Keeps enforcing the last profile when the server is away; a worker in the user's session
+- Local fallback mode: when the server cannot be reached for a minute, the teacher's console can switch a room's
+  profile directly over the school network (Noise channel on port 11500, signed discovery); the switch is
+  undone and reported when the server is back
+
+### Console (`guardian-console`, new)
+- The teacher's window: connect to a server or run it on this computer; rooms, profiles, computers, users,
+  enrollment codes and "Connection info…" with the exact agent install command; local fallback mode
+
+### Setup (`guardian-setup`, new)
+- Installs, checks, updates, re-enrolls and removes the Windows agent from a window or the command line;
+  writes the local whitelist from the programs running at install time, opens port 11500 for the local network,
+  removes Guardian 2.x when asked
+
+### Removed
+- The Go server, agent, Guardian Server for Windows and Guardian Console (2.x), the `.bat`/`.ps1` installers
+  and the APK in the release archive (the Android app comes back after 3.0)
+
+## [Unreleased] (2.x, Go)
 
 ### Guardian Server for Windows (new)
 - `GuardianServer.exe`: the teacher runs the server on their own Windows PC; it runs while the window is open

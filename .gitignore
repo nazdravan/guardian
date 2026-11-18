@@ -1,9 +1,6 @@
-release/
 .env
 .idea/
-deploy.sh
 build/
-guardian.db
 .DS_Store
 
 dist/
