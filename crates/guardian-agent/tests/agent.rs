@@ -286,3 +286,69 @@ async fn revoked_agent_keeps_last_policy() {
     assert!(until(Duration::from_secs(1), || !f.is_running(game)).await);
     h.shutdown().await;
 }
+
+fn old_exam_state(computer_id: u64) -> guardian_proto::v1::StoredState {
+    guardian_proto::v1::StoredState {
+        state: Some(AgentState {
+            version: 1_000_000,
+            effective_profile_id: 9,
+            room_id: 0,
+            profiles: vec![guardian_proto::v1::Profile {
+                id: 9,
+                name: "Old exam".into(),
+                mode: guardian_proto::v1::Mode::Whitelist as i32,
+                apps: vec![],
+            }],
+        }),
+        computer_id,
+        ..Default::default()
+    }
+}
+
+#[tokio::test]
+async fn state_saved_for_another_enrollment_is_discarded() {
+    let (_s, _t, _d, paths, f, id) = setup().await;
+    guardian_agent::store::save_state(&paths.state(), &old_exam_state(id + 1)).unwrap();
+    let h = run(opts(&paths, &f)).await.unwrap();
+    online(&h).await;
+    assert!(
+        until(Duration::from_secs(2), || h.status().profile_name
+            == "Lecție"
+            && h.status().state_version < 1_000_000)
+        .await,
+        "the old enrollment's state still applies: {:?}",
+        h.status()
+    );
+    h.shutdown().await;
+}
+
+#[tokio::test]
+async fn enroll_removes_the_previous_state_and_seen_ids() {
+    let s = TestServer::start().await;
+    let t = s.admin_token().await;
+    let code = AdminClient::new(s.grpc().await)
+        .create_enroll_code(req(
+            &t,
+            CreateEnrollCodeRequest {
+                kind: EnrollCodeKind::EnrollAgent as i32,
+                room_id: 0,
+                max_uses: 1,
+                ttl_seconds: 0,
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner()
+        .code;
+    let dir = tempfile::tempdir().unwrap();
+    let paths = AgentPaths::under(dir.path());
+    std::fs::create_dir_all(&paths.data).unwrap();
+    guardian_agent::store::save_state(&paths.state(), &old_exam_state(7)).unwrap();
+    std::fs::write(paths.seen(), "old-command\n").unwrap();
+    let f = FakePlatform::new(Os::Windows);
+    enroll(&paths, &base_url(&s), s.pin().as_deref(), &code, &*f)
+        .await
+        .unwrap();
+    assert!(!paths.state().exists());
+    assert!(!paths.seen().exists());
+}

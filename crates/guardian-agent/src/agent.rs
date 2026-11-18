@@ -108,6 +108,14 @@ pub async fn enroll(
         computer_id: Some(id),
     }
     .save(&paths.config)?;
+    // State and command ids of an earlier enrollment must not carry over.
+    for old in [paths.state(), paths.seen()] {
+        match std::fs::remove_file(&old) {
+            Ok(()) => tracing::info!("removed {} from an earlier enrollment", old.display()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(StoreError::io(&old, e).into()),
+        }
+    }
     tracing::info!("enrolled as computer {id}");
     Ok(id)
 }
@@ -191,7 +199,20 @@ pub async fn run(opts: AgentOptions) -> Result<AgentHandle, AgentError> {
     let cfg = AgentConfig::load(&opts.paths.config).map_err(|_| AgentError::NotEnrolled)?;
     let computer_id = cfg.computer_id.ok_or(AgentError::NotEnrolled)?;
     let key: KeyPair = store::load_or_create_key(&opts.paths.key())?;
-    let stored = store::load_state(&opts.paths.state()).unwrap_or_else(store::default_state);
+    // A state saved under another enrollment (another server, or this computer
+    // enrolled again) is not ours: its version numbers mean nothing here.
+    let stored = store::load_state(&opts.paths.state())
+        .filter(|st| {
+            let ours = st.computer_id == computer_id;
+            if !ours {
+                tracing::warn!(
+                    "ignoring the saved state of computer {} (enrolled as {computer_id})",
+                    st.computer_id
+                );
+            }
+            ours
+        })
+        .unwrap_or_else(store::default_state);
     let engine = Engine::spawn(
         opts.platform.clone(),
         Policy::from_state(&state_of(&stored)),
