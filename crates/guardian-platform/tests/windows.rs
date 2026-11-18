@@ -94,6 +94,23 @@ fn trusted_roots_cover_system32_but_not_temp() {
 }
 
 #[test]
+fn user_writable_system_folders_are_not_trusted() {
+    let r = guardian_platform::trusted_roots_from(
+        Path::new(r"C:\Windows"),
+        Path::new(r"C:\Program Files"),
+        Path::new(r"C:\ProgramData"),
+    );
+    for p in [
+        r"C:\Windows\System32\FxsTmp\svchost.exe",
+        r"C:\Windows\SysWOW64\FxsTmp\svchost.exe",
+        r"C:\Windows\System32\Tasks_Migrated\svchost.exe",
+        r"C:\Windows\SysWOW64\Tasks_Migrated\svchost.exe",
+    ] {
+        assert!(!r.contains(Os::Windows, Path::new(p)), "{p} is trusted");
+    }
+}
+
+#[test]
 fn system_info_has_hostname_and_os() {
     let i = guardian_platform::current().system_info("3.0.0");
     assert_eq!(i.os, "windows");

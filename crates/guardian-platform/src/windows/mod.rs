@@ -15,7 +15,7 @@ mod ffi_session;
 mod procs;
 mod session;
 
-pub(crate) use ffi_pipe::client_pid as pipe_client_pid;
+pub(crate) use ffi_pipe::{client_pid as pipe_client_pid, create_server as create_pipe_server};
 
 /// The Windows platform.
 #[derive(Debug, Default, Clone, Copy)]
@@ -54,8 +54,12 @@ pub fn trusted_roots_from(
             sr(r"System32\Tasks"),
             sr(r"System32\com\dmp"),
             sr(r"System32\Microsoft\Crypto"),
+            sr(r"System32\Tasks_Migrated"),
+            sr(r"System32\FxsTmp"),
             sr(r"SysWOW64\Tasks"),
+            sr(r"SysWOW64\Tasks_Migrated"),
             sr(r"SysWOW64\com\dmp"),
+            sr(r"SysWOW64\FxsTmp"),
             sr("Temp"),
             sr("Tracing"),
         ],

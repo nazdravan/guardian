@@ -172,7 +172,8 @@ impl IpcListener {
     /// Listens on `ep`. Unix: the directory is created `0711`, a stale socket
     /// file is removed, the socket is `0666` (the worker runs as the user).
     /// Windows: the first pipe instance is created with `first_pipe_instance`, so
-    /// another process cannot have squatted the name.
+    /// another process cannot have squatted the name, and every instance gets an
+    /// explicit security descriptor (`windows/ffi_pipe.rs`).
     pub fn bind(ep: &IpcEndpoint) -> io::Result<IpcListener> {
         match ep {
             #[cfg(unix)]
@@ -195,9 +196,7 @@ impl IpcListener {
             }
             #[cfg(windows)]
             IpcEndpoint::Pipe(name) => {
-                let first = tokio::net::windows::named_pipe::ServerOptions::new()
-                    .first_pipe_instance(true)
-                    .create(name)?;
+                let first = crate::windows::create_pipe_server(name, true)?;
                 Ok(IpcListener {
                     name: name.clone(),
                     next: Some(first),
@@ -225,12 +224,10 @@ impl IpcListener {
             use std::os::windows::io::AsRawHandle;
             let server = match self.next.take() {
                 Some(s) => s,
-                None => tokio::net::windows::named_pipe::ServerOptions::new().create(&self.name)?,
+                None => crate::windows::create_pipe_server(&self.name, false)?,
             };
             server.connect().await?;
-            self.next = tokio::net::windows::named_pipe::ServerOptions::new()
-                .create(&self.name)
-                .ok();
+            self.next = crate::windows::create_pipe_server(&self.name, false).ok();
             let pid = crate::windows::pipe_client_pid(server.as_raw_handle())?;
             Ok((IpcStream::PipeServer(server), pid))
         }

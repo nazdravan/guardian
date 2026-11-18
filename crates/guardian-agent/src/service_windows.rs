@@ -45,10 +45,30 @@ pub fn is_run(cli: &Cli) -> bool {
     )
 }
 
-/// SYSTEM and Administrators only: the directory holds the agent's private key.
-/// SIDs avoid localized group names.
-fn protect_dir(dir: &std::path::Path) -> Result<(), String> {
+fn icacls(dir: &std::path::Path, args: &[&str]) -> Result<(), String> {
+    let out = Command::new("icacls")
+        .arg(dir)
+        .args(args)
+        .output()
+        .map_err(|e| format!("icacls: {e}"))?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "icacls {}: {}",
+            dir.display(),
+            String::from_utf8_lossy(&out.stdout).trim()
+        ))
+    }
+}
+
+/// SYSTEM and Administrators only: the directory holds the agent's private key,
+/// its state and the local whitelist. Users can create folders in
+/// `%ProgramData%`, so the owner is reset to Administrators first — an owner can
+/// always rewrite the DACL. SIDs avoid localized group names.
+pub fn protect_dir(dir: &std::path::Path) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
+    icacls(dir, &["/setowner", "*S-1-5-32-544", "/T", "/C", "/Q"])?;
     let out = Command::new("icacls")
         .arg(dir)
         .args([

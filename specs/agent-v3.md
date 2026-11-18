@@ -50,7 +50,9 @@ per line, `#` comments), `agent.log` (Windows service only). Every state write i
 6. Commands are deduplicated by id (`SeenIds`, 1000, saved). Stage 2 announces `capabilities = []`, so every new
    command id gets exactly one `CommandResult{RESULT_UNSUPPORTED}`.
 7. `revoked` from the server: the connection stops, the last policy keeps being enforced.
-8. Offline = no authenticated connection for 60 s (only reported in stage 2; local fallback mode is stage 3).
+8. A saved state whose `computer_id` is not this enrollment's is ignored (another server, or a re-enrollment),
+   and a successful `enroll` deletes `state.pb` and `seen.txt`.
+9. Offline = no authenticated connection for 60 s (only reported in stage 2; local fallback mode is stage 3).
 
 ## Enforcement (`engine.rs`)
 
@@ -66,14 +68,20 @@ per line, `#` comments), `agent.log` (Windows service only). Every state write i
 - Never killed: the agent itself, the current worker PID, protected processes (`guardian-core::protected`).
 - A protected name counts only for an executable under the OS's **trusted roots** (`TrustedRoots`), so renaming a
   game to `svchost.exe` in Downloads does not protect it:
-  - Linux: `/usr`, `/bin`, `/sbin`, `/lib`, `/lib64`, `/opt/guardian-agent`. A process without a readable
-    executable (kernel threads) is never killed — which is why the unit keeps `CAP_SYS_PTRACE`, so root can read
-    every user's `/proc/<pid>/exe`.
+  - Linux: `/usr`, `/bin`, `/sbin`, `/lib`, `/lib64`, `/opt/guardian-agent`. The path counts only if
+    `/proc/<pid>/exe` is the same file (device + inode) as that path in the agent's own mount namespace — a
+    process in its own namespace can make the link text say `/usr/bin/bash` for any file; otherwise the trust
+    path is the untrusted `/proc/<pid>/exe` (the name still comes from the link text). A deleted executable
+    (after a package upgrade) counts if it has no links left and sits on the reported directory's filesystem.
+    Kernel threads (`PF_KTHREAD` in `/proc/<pid>/stat`) are never reported; a user process whose exe cannot be
+    read is protected only by name, so an agent without `CAP_SYS_PTRACE` still enforces Exam (it just loses
+    the trusted-path check). Lab machines should also disable unprivileged user namespaces.
   - Windows (`trusted_roots_from`): recursively `%SystemRoot%\System32`, `SysWOW64`, `SystemApps`,
     `ImmersiveControlPanel`, `%ProgramFiles%\WindowsApps`, `PowerShell`, `Windows Defender`, `Guardian`,
     `%ProgramData%\Microsoft\Windows Defender\Platform`; files directly in `%SystemRoot%`; excluded (users can
     write there): `System32\spool`, `System32\Tasks`, `System32\com\dmp`, `System32\Microsoft\Crypto`,
-    `SysWOW64\Tasks`, `SysWOW64\com\dmp`, `Temp`, `Tracing`. Case-insensitive, `/` = `\`, `..` never trusted. A
+    `System32\Tasks_Migrated`, `System32\FxsTmp`, `SysWOW64\Tasks`, `SysWOW64\Tasks_Migrated`,
+    `SysWOW64\com\dmp`, `SysWOW64\FxsTmp`, `Temp`, `Tracing`. Case-insensitive, `/` = `\`, `..` never trusted. A
     process that cannot be opened is protected only by name.
 - Process names come from the executable's file name (Linux `comm` is cut to 15 bytes).
 - On an OS without process control (macOS dev) the engine logs
@@ -92,6 +100,10 @@ per line, `#` comments), `agent.log` (Windows service only). Every state write i
 - Ping every 5 s; no pong for 10 s → the connection closes and a new worker starts at the next check. A started
   worker that never connects within 15 s is replaced. No session / logout → the connection closes (the worker
   exits); a different session → restart in the new one.
+- Windows pipe instances carry an explicit security descriptor
+  (`D:P(D;;GA;;;NU)(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x12019b;;;IU)`: no network logons, interactive users read/write
+  without creating pipe instances). The PID check is the real gate; anything the worker sends stays untrusted,
+  since the worker runs as the student.
 - Frames: big-endian u32 length + protobuf (`proto/guardian/v1/worker.proto`), at most 64 KiB.
 - The worker runs only if `guardian-worker` sits next to the agent binary. Its exit codes: 0 when the agent closes
   the connection, 2 when it cannot reach the agent within `--connect-timeout` (10 s).
@@ -121,7 +133,9 @@ keeps the enrollment and state unless `--purge`.
 
 **Windows** (as administrator, from `%ProgramFiles%\Guardian`): `guardian-agent enroll …`, then
 `guardian-agent service install` — service `GuardianAgent` ("Guardian Agent"), automatic start, LocalSystem,
-recovery: restart after 5 s three times (counter reset after a day); applies the protected ACL to the data dir;
+recovery: restart after 5 s three times (counter reset after a day). Both `enroll` (before the key is written)
+and `service install` give the data and config directories owner Administrators and the protected ACL (a
+student may have pre-created the folder in `%ProgramData%`);
 refuses to install on an unenrolled computer. The installer GUI is stage 3 (`guardian-setup`).
 
 ## Tests

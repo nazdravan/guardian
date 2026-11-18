@@ -54,3 +54,21 @@ fn endpoint_arg_roundtrip() {
         assert_eq!(IpcEndpoint::parse(&ep.to_arg()), ep);
     }
 }
+
+/// Every pipe instance carries an explicit security descriptor (SYSTEM and
+/// Administrators full, interactive users read/write, network logons denied);
+/// the first and the following instances both accept a client.
+#[cfg(windows)]
+#[tokio::test]
+async fn pipe_with_security_descriptor_accepts_clients() {
+    use guardian_platform::ipc::{IpcEndpoint, IpcListener, connect};
+    let ep = IpcEndpoint::Pipe(format!(r"\\.\pipe\guardian-test-{}", std::process::id()));
+    let mut l = IpcListener::bind(&ep).unwrap();
+    for _ in 0..2 {
+        let ep2 = ep.clone();
+        let client = tokio::spawn(async move { connect(&ep2).await.unwrap() });
+        let (_s, pid) = l.accept().await.unwrap();
+        assert_eq!(pid, std::process::id());
+        client.await.unwrap();
+    }
+}

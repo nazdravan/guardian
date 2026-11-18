@@ -21,6 +21,8 @@ mod linux;
 mod unsupported;
 #[cfg(windows)]
 mod windows;
+#[cfg(windows)]
+pub use windows::trusted_roots_from;
 
 /// A platform operation failed.
 #[derive(Debug, thiserror::Error)]

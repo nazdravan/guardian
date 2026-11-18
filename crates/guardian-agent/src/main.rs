@@ -223,6 +223,16 @@ fn main() -> ExitCode {
             code,
             cert_sha256,
         } => {
+            // The key is written next: protect the directories first.
+            #[cfg(windows)]
+            for dir in [Some(paths.data.as_path()), paths.config.parent()]
+                .into_iter()
+                .flatten()
+            {
+                if let Err(e) = service_windows::protect_dir(dir) {
+                    return fail(e);
+                }
+            }
             let rt = match runtime() {
                 Ok(rt) => rt,
                 Err(c) => return c,
