@@ -38,6 +38,7 @@ jobs:
       - run: cargo build --workspace --bins
       - run: cargo test --workspace --all-features
       - run: cargo test -p guardian-agent --test real_linux
+      - run: cargo test -p guardian-console --test real_embedded
       - run: sh -n packaging/agent-linux-v3/install.sh && sh -n packaging/agent-linux-v3/uninstall.sh
       # As root: the proc connector delivers real exec events.
       - run: sudo -E env "PATH=$PATH" cargo test -p guardian-platform --features testing --test linux -- --include-ignored
@@ -54,8 +55,14 @@ jobs:
       # GitHub's Windows runners are administrators, so the ETW test runs too.
       - run: cargo test -p guardian-core -p guardian-proto -p guardian-platform --features guardian-platform/testing -- --include-ignored
       - run: cargo test -p guardian-agent
+      - run: cargo test -p guardian-console --features testing
       - run: cargo build --release -p guardian-agent -p guardian-worker --target x86_64-pc-windows-msvc
       - run: cargo build --release -p guardian-agent -p guardian-worker --target i686-pc-windows-msvc
+      - run: cargo build --release -p guardian-console --target i686-pc-windows-msvc
+      - uses: actions/upload-artifact@v4
+        with:
+          name: console-windows
+          path: target/i686-pc-windows-msvc/release/guardian-console.exe
       - uses: actions/upload-artifact@v4
         with:
           name: agent-windows
