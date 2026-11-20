@@ -146,3 +146,25 @@ pub(crate) fn lan_addresses() -> Vec<String> {
 pub(crate) fn hostname() -> String {
     gethostname::gethostname().to_string_lossy().into_owned()
 }
+
+/// `icacls <dir>` arguments that leave a folder to SYSTEM, Administrators and
+/// `extra_sids` (full control, inherited by everything inside), with no other
+/// access. Only the folder is changed: its files and subfolders inherit, so a
+/// second run on a folder that already has files (a key, a certificate) keeps
+/// them readable. (`/T` would apply folder-only inheritance flags to files.)
+pub fn protected_acl_args(extra_sids: &[&str]) -> Vec<String> {
+    let mut args = vec![
+        "/inheritance:r".to_string(),
+        "/grant:r".to_string(),
+        "*S-1-5-18:(OI)(CI)F".to_string(),
+        "/grant:r".to_string(),
+        "*S-1-5-32-544:(OI)(CI)F".to_string(),
+    ];
+    for sid in extra_sids {
+        args.push("/grant:r".to_string());
+        args.push(format!("*{sid}:(OI)(CI)F"));
+    }
+    args.push("/C".to_string());
+    args.push("/Q".to_string());
+    args
+}

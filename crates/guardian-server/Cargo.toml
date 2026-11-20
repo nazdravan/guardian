@@ -42,6 +42,7 @@ tempfile = { workspace = true, optional = true }
 tokio-tungstenite = { workspace = true, optional = true }
 
 [target.'cfg(windows)'.dependencies]
+guardian-platform.workspace = true
 windows-service.workspace = true
 
 [dev-dependencies]

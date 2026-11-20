@@ -24,7 +24,6 @@ guardian-client = { path = "crates/guardian-client" }
 guardian-platform = { path = "crates/guardian-platform" }
 guardian-agent = { path = "crates/guardian-agent" }
 guardian-worker = { path = "crates/guardian-worker" }
-guardian-console = { path = "crates/guardian-console" }
 guardian-local = { path = "crates/guardian-local" }
 guardian-applog = { path = "crates/guardian-applog" }
 
@@ -52,7 +51,6 @@ ed25519-dalek = "3"
 snow = "0.10"
 argon2 = "0.6"
 sha2 = "0.11"
-rand = "0.10"
 getrandom = "0.4"
 base64 = "0.22"
 hex = "0.4"

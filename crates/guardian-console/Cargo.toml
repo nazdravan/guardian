@@ -50,5 +50,8 @@ guardian-agent.workspace = true
 guardian-platform = { workspace = true, features = ["testing"] }
 sqlx.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+guardian-platform.workspace = true
+
 [lints]
 workspace = true

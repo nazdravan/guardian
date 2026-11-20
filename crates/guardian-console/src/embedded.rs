@@ -78,24 +78,12 @@ pub fn prepare_data_dir(dir: &Path) -> Result<(), String> {
         .map_err(|e| format!("whoami: {e}"))?;
         let sid = parse_whoami_sid(&String::from_utf8_lossy(&out.stdout))
             .ok_or_else(|| "Cannot find the current user's SID.".to_string())?;
-        let me = format!("*{sid}:(OI)(CI)F");
         let out = std::process::Command::new(crate::firewall::system_tool(
             &crate::firewall::system_root(),
             "icacls.exe",
         ))
         .arg(dir)
-        .args([
-            "/inheritance:r",
-            "/grant:r",
-            "*S-1-5-18:(OI)(CI)F",
-            "/grant:r",
-            "*S-1-5-32-544:(OI)(CI)F",
-            "/grant:r",
-            &me,
-            "/T",
-            "/C",
-            "/Q",
-        ])
+        .args(guardian_platform::protected_acl_args(&[sid.as_str()]))
         .creation_flags(CREATE_NO_WINDOW)
         .output()
         .map_err(|e| format!("icacls: {e}"))?;

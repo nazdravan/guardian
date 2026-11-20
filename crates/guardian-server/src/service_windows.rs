@@ -60,16 +60,7 @@ fn protect_data_dir(dir: &std::path::Path) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
     let out = Command::new("icacls")
         .arg(dir)
-        .args([
-            "/inheritance:r",
-            "/grant:r",
-            "*S-1-5-18:(OI)(CI)F",
-            "/grant:r",
-            "*S-1-5-32-544:(OI)(CI)F",
-            "/T",
-            "/C",
-            "/Q",
-        ])
+        .args(guardian_platform::protected_acl_args(&[]))
         .output()
         .map_err(|e| format!("icacls: {e}"))?;
     if out.status.success() {

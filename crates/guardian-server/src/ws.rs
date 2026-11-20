@@ -74,11 +74,11 @@ async fn recv(stream: &mut Stream) -> Option<AgentFrame> {
 }
 
 /// A handshake failure: the error frame to send before closing.
-struct Reject(ServerFrame);
+struct Reject(Box<ServerFrame>);
 
 impl Reject {
     fn new(code: &str, message: &str) -> Reject {
-        Reject(error(code, message))
+        Reject(Box::new(error(code, message)))
     }
 }
 

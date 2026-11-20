@@ -2233,6 +2233,7 @@ dependencies = [
  "gethostname",
  "guardian-client",
  "guardian-core",
+ "guardian-platform",
  "guardian-proto",
  "guardian-server",
  "hex",
